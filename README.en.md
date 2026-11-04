@@ -6,7 +6,7 @@
 > with time & engagement sorting, search, and one-click jump to the original post.
 > **Runs entirely on your machine. No API key, no uploads, no telemetry.**
 
-![version](https://img.shields.io/badge/version-2.1.2-blue) ![tests](https://img.shields.io/badge/tests-44%20passed-brightgreen) ![license](https://img.shields.io/badge/license-MIT-green) ![python](https://img.shields.io/badge/python-3.9%2B-3776ab)
+![version](https://img.shields.io/badge/version-2.1.3-blue) ![tests](https://img.shields.io/badge/tests-45%20passed-brightgreen) ![license](https://img.shields.io/badge/license-MIT-green) ![python](https://img.shields.io/badge/python-3.9%2B-3776ab)
 
 | Desktop | Mobile |
 | --- | --- |

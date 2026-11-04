@@ -86,6 +86,13 @@ class IngestTest(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(total, 1)
 
+    def test_reclassify_called_with_force(self):
+        """ingest 自己已经把 STATE 设成 running，重分类必须 force=True，否则永远自锁。"""
+        with mock.patch.object(serve, "load_settings", return_value=self.settings), \
+                mock.patch.object(serve, "reclassify", return_value=(True, "ok")) as rc:
+            serve.ingest_items([{"id": "1"}], "someone", "bookmark")
+        self.assertEqual(rc.call_args.kwargs.get("force"), True)
+
     def test_likes_mode_writes_likes_file(self):
         with mock.patch.object(serve, "load_settings", return_value=self.settings), \
                 mock.patch.object(serve, "reclassify", return_value=(True, "ok")):

@@ -213,7 +213,7 @@ def _child_env():
     return env
 
 
-VERSION = "2.1.2"
+VERSION = "2.1.3"
 COOKIE_KEY = "xbm_key"
 
 
@@ -602,15 +602,19 @@ def ingest_items(items, handle="", mode="bookmark"):
         mp.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
         log("写 meta.json 失败：%s" % e)
-    ok, msg = reclassify()
+    ok, msg = reclassify(force=True)
     return ok, msg, len(merged)
 
 
-def reclassify():
-    """改了手动分类后重跑 organize.py（只重算分类/导出，不抓取）。"""
+def reclassify(force=False):
+    """改了手动分类后重跑 organize.py（只重算分类/导出，不抓取）。
+
+    force=True 用于「调用方自己已经持有 running 标记」的场景（比如扩展桥的 /api/ingest），
+    否则这里会把自己刚设的 running 当成别的任务，永远返回「App 正在刷新」。
+    """
     s = load_settings()
     with LOCK:
-        if STATE["running"]:
+        if STATE["running"] and not force:
             return False, "App 正在刷新，等它跑完再改分类"
         STATE.update(running=True, step="重新分类", err="")
     try:
@@ -966,7 +970,7 @@ class LocalServer(ThreadingHTTPServer):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "XBookmarks/2.1.2"
+    server_version = "XBookmarks/2.1.3"
     timeout = 15                        # 慢连接别把线程池拖死
 
     def log_message(self, fmt, *args):
