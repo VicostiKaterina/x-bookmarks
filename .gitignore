@@ -1,0 +1,24 @@
+# 本机数据与登录态，不要提交
+settings.json
+data/
+exports/
+profile/
+xbm-profile2/
+.profile/
+*.log
+__pycache__/
+*.pyc
+_lab/
+.venv/
+node_modules/
+docs/*.png.local
+
+# 系统
+.DS_Store
+Thumbs.db
+
+python.txt
+
+*.err
+models/
+data/emb_cache.npz
