@@ -5,14 +5,36 @@
 用法:  python organize.py <导出的.json 或 目录>
 产物:  out/bookmarks.csv, out/bookmarks.xlsx, out/index.html, out/summary.txt
 """
-import json, re, csv, sys, time, html as _html
+import json, os, re, csv, sys, time, html as _html
 from pathlib import Path
 from datetime import datetime, timezone
 from collections import Counter, defaultdict
 
 BASE = Path(__file__).resolve().parent
-DATA_DIR = BASE / "data"
-EXPORT_DIR = BASE / "exports"
+
+
+def _settings_paths(base=None):
+    """settings.json 里改过的 data_dir / export_dir 要生效，否则 App 会读旧目录。"""
+    base = Path(base) if base else BASE
+    data, exp = "data", "exports"
+    sp = base / "settings.json"
+    if sp.exists():
+        try:
+            st = json.loads(sp.read_text(encoding="utf-8-sig"))
+            if isinstance(st, dict):
+                data = str(st.get("data_dir") or data)
+                exp = str(st.get("export_dir") or exp)
+        except Exception:
+            pass
+
+    def resolve(v):
+        q = Path(v)
+        return q if q.is_absolute() else (base / q)
+
+    return resolve(data), resolve(exp)
+
+
+DATA_DIR, EXPORT_DIR = _settings_paths()
 OUT = EXPORT_DIR
 RULES = json.loads((BASE / "rules.json").read_text(encoding="utf-8"))
 CATS = RULES["categories"]
@@ -260,7 +282,9 @@ def write_xlsx(rows, path):
         ws.column_dimensions["A"].width = 24
         for h, n in top.most_common(100):
             ws.append([h, n])
-    wb.save(path)
+    tmp = path.with_name(path.name + ".tmp")
+    wb.save(tmp)
+    os.replace(tmp, path)
 HTML_HEAD = """<!doctype html>
 <html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>X 书签整理</title><style>
@@ -395,7 +419,7 @@ def load_records(path):
     return recs, used
 
 
-def author_smooth(rows, ratio=0.6, min_items=3):
+def author_smooth(rows, ratio=0.6, min_items=3, min_sens=2):
     """作者画像平滑：
     1) 同一作者只要有一条被 X 标记敏感，该作者其余「待定」条目也归私密；
     2) 同一作者多数条目已判私密时，其余「待定」条目也归私密。
@@ -409,7 +433,7 @@ def author_smooth(rows, ratio=0.6, min_items=3):
             continue
         n_sens = sum(1 for r in items if r.get("sensitive"))
         priv = sum(1 for r in items if r["cat"] == "private")
-        sens_author = n_sens > 0
+        sens_author = n_sens >= min_sens   # 单条敏感不足以下结论，至少 2 条
         priv_author = len(items) >= min_items and priv / len(items) >= ratio
         if not (sens_author or priv_author):
             continue
@@ -423,17 +447,25 @@ def author_smooth(rows, ratio=0.6, min_items=3):
     return moved
 
 
-def media_only_smooth(rows, min_sensitive_rate=0.3):
-    """纯媒体帖（正文去掉链接/@提及/#话题后为空，且带媒体）：仅在"敏感帖占比高"的账号里按私密处理，
+def media_only_smooth(rows, min_sensitive_rate=0.3, min_items=3):
+    """纯媒体帖（正文去掉链接/@提及/#话题后为空，且带媒体）：只在「该作者自己」敏感帖占比高时按私密处理，
     避免把普通账号的纯图帖（表情包、截图）误判成私密。"""
     if not rows:
         return 0
-    rate = sum(1 for r in rows if r.get("sensitive")) / len(rows)
-    if rate < min_sensitive_rate:
-        return 0
+    by = {}
+    for r in rows:
+        by.setdefault((r.get("handle") or "").lower(), []).append(r)
+    risky = set()
+    for h, items in by.items():
+        if not h or len(items) < min_items:
+            continue
+        if sum(1 for x in items if x.get("sensitive")) / len(items) >= min_sensitive_rate:
+            risky.add(h)
     moved = 0
     for r in rows:
         if r["cat"] != "misc" or not r["media"]:
+            continue
+        if (r.get("handle") or "").lower() not in risky:
             continue
         t = re.sub(r"https?://\S+|@\w+|#\S+", " ", r["text"] or "")
         t = re.sub(r"[\s·|,.，。!！?？~～\-–—:：;；'\"“”‘’()（）\[\]]+", "", t)
@@ -461,9 +493,16 @@ def write_items(rows, path):
             "bookmarks": r.get("bookmarks", 0), "manual": bool(r.get("manual")),
         })
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        json.dump({"generated": f"{datetime.now():%Y-%m-%d %H:%M:%S}", "items": items},
-                  f, ensure_ascii=False)
+    payload = {"generated": f"{datetime.now():%Y-%m-%d %H:%M:%S}", "items": items}
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    bak = path.with_name(path.name + ".bak")
+    if path.exists():
+        try:
+            bak.write_bytes(path.read_bytes())
+        except Exception:
+            pass
+    os.replace(tmp, path)      # 原子替换：断电/崩了也不会留下半截 items.json
 
 
 def load_runtime_settings():
@@ -542,6 +581,7 @@ def main(argv=None):
     ap.add_argument("--out", default="", help="导出目录（默认 exports/）")
     ap.add_argument("--items", default="", help="items.json 输出路径（默认 data/items.json）")
     ap.add_argument("--html", action="store_true", help="另外写一份离线 index.html")
+    ap.add_argument("--force", action="store_true", help="读到 0 条也照样写空 items.json（危险）")
     a = ap.parse_args(argv)
 
     src = a.input.strip() or str(DATA_DIR / "raw_bookmarks.json")
@@ -552,6 +592,10 @@ def main(argv=None):
     OUT.mkdir(parents=True, exist_ok=True)
     recs, used = load_records(src)
     print(f"读入 {len(recs)} 条原始记录，来源: {', '.join(used) or '（无）'}")
+    if not recs and not a.force:
+        print("没读到任何原始记录（文件缺失或损坏）。为免用空数据覆盖 items.json，已中止。")
+        print("确实要生成空表请加 --force")
+        return 2
     rows, seen, dup, bad = [], set(), 0, 0
     for x in recs:
         n = norm(x)
@@ -577,7 +621,10 @@ def main(argv=None):
     counts = Counter(r["cat"] for r in rows)
 
     write_csv(rows, OUT / "bookmarks.csv")
-    write_xlsx(rows, OUT / "bookmarks.xlsx")
+    try:
+        write_xlsx(rows, OUT / "bookmarks.xlsx")
+    except Exception as e:            # Excel 正打开着那个文件时 PermissionError，别让整轮白跑
+        print(f"警告：Excel 没写成（{e}）；表格可能正被 Excel 打开，其余产物已更新")
     write_items(rows, ITEMS)
     if a.html:
         write_html(rows, OUT / "index.html")

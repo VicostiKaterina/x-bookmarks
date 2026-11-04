@@ -12,6 +12,7 @@
     python serve.py            # 启动（默认 8900）
     python serve.py --port 8900
 """
+import hmac
 import json
 import os
 import re
@@ -33,6 +34,7 @@ import cdp
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
 SETTINGS_PATH = ROOT / "settings.json"
+SETTINGS_BAK = ROOT / "settings.json.bak"
 CATS = ("ai", "tech", "life", "private", "misc")
 
 DEFAULTS = {
@@ -53,9 +55,71 @@ DEFAULTS = {
     "auto_refresh_hours": 0,
     "bind": "127.0.0.1",
     "access_code": "",
+    "cookie_salt": "",
     "semantic_enabled": True,
     "semantic_threshold": 0.6,
 }
+
+SORT_KEYS = ("time_desc", "time_asc", "views", "likes", "retweets", "bookmarks", "replies")
+BINDS = ("127.0.0.1", "0.0.0.0", "::1", "::")
+
+
+def _as_bool(v, default=False):
+    if isinstance(v, bool):
+        return v
+    if v is None:
+        return default
+    return str(v).strip().lower() in ("1", "true", "yes", "on", "是")
+
+
+def sanitize_settings(d):
+    """把任意来源的设置洗成「一定能用」的形状：类型错、超范围、非法值一律回退。"""
+    src = d if isinstance(d, dict) else {}
+    out = dict(DEFAULTS)
+    for k in DEFAULTS:
+        if k in src:
+            out[k] = src[k]
+
+    def as_int(key, lo, hi):
+        try:
+            v = int(str(out.get(key)).strip())
+        except Exception:
+            v = DEFAULTS[key]
+        out[key] = max(lo, min(hi, v))
+
+    as_int("port", 1, 65535)
+    as_int("debug_port", 1, 65535)
+    as_int("auto_refresh_hours", 0, 24 * 30)
+
+    try:
+        thr = float(out.get("semantic_threshold"))
+    except Exception:
+        thr = DEFAULTS["semantic_threshold"]
+    out["semantic_threshold"] = round(max(0.4, min(0.95, thr)), 2)
+
+    for k in ("blur_private", "blur_misc_media", "semantic_enabled"):
+        out[k] = _as_bool(out.get(k), DEFAULTS[k])
+
+    bind = str(out.get("bind") or "").strip() or DEFAULTS["bind"]
+    out["bind"] = bind if bind in BINDS else DEFAULTS["bind"]
+    out["access_code"] = str(out.get("access_code") or "").strip()[:64]
+    out["default_sort"] = str(out.get("default_sort") or "").strip()
+    if out["default_sort"] not in SORT_KEYS:
+        out["default_sort"] = DEFAULTS["default_sort"]
+    for k in ("data_dir", "export_dir", "profile_dir"):
+        v = str(out.get(k) or "").strip()
+        out[k] = v or DEFAULTS[k]
+    for k in ("translate_provider", "translate_target", "llm_model"):
+        out[k] = str(out.get(k) or "").strip()
+    # 代理会被拼进 chrome 命令行：只接受干净的 scheme://host:port，挡参数注入
+    px = str(out.get("proxy") or "").strip()
+    out["proxy"] = px if re.match(r"^(https?|socks5)://[A-Za-z0-9._:\-]+$", px) else ""
+    lb = str(out.get("llm_base") or "").strip()
+    out["llm_base"] = lb if re.match(r"^https?://[A-Za-z0-9._:\-]+/?$", lb.rstrip("/")) or re.match(r"^https?://[A-Za-z0-9._:\-]+(/[A-Za-z0-9._:\-/]*)?$", lb) else DEFAULTS["llm_base"]
+    out["llm_key"] = str(out.get("llm_key") or "").strip()[:200]
+    out["cookie_salt"] = re.sub(r"[^0-9a-f]", "", str(out.get("cookie_salt") or ""))[:64]
+    return out
+
 
 CHROME_CANDIDATES = [
     r"C:\Program Files\Google\Chrome\Application\chrome.exe",
@@ -70,26 +134,94 @@ CHROME_CANDIDATES = [
 LOGIN = {"state": "idle", "handle": "", "msg": ""}
 STATE = {"running": False, "step": "", "log": [], "err": "", "count": 0, "at": "", "started": 0.0}
 LOCK = threading.Lock()
+UNLOCK_FAIL = {}          # ip -> (失败次数, 解禁时间)
 
 
 # ---------------------------------------------------------------- 配置 / 路径
 
 def load_settings():
     d = dict(DEFAULTS)
+    loaded = None
     if SETTINGS_PATH.exists():
         try:
-            d.update(json.loads(SETTINGS_PATH.read_text(encoding="utf-8-sig")))
-        except Exception:
-            pass
-    return d
+            loaded = json.loads(SETTINGS_PATH.read_text(encoding="utf-8-sig"))
+        except Exception as e:
+            log("settings.json 读不出来（%s），改用备份" % e)
+            if SETTINGS_BAK.exists():
+                try:
+                    loaded = json.loads(SETTINGS_BAK.read_text(encoding="utf-8-sig"))
+                except Exception as e2:
+                    log("备份也读不出来：%s（先按默认值跑）" % e2)
+    if isinstance(loaded, dict):
+        d.update(loaded)
+    out = sanitize_settings(d)
+
+    dirty = False
+    if not out["cookie_salt"]:
+        out["cookie_salt"] = secrets.token_hex(8)
+        dirty = True
+    # 对外监听却没访问码 = 局域网裸奔：自动补一个
+    if not out["access_code"] and out["bind"] not in ("127.0.0.1", "::1"):
+        out["access_code"] = new_code()
+        dirty = True
+        log("没设访问码又开着局域网访问，已自动生成访问码：%s" % out["access_code"])
+    if dirty:
+        try:
+            save_settings(out)
+        except Exception as e:
+            log("写回 settings.json 失败：%s" % e)
+    return out
 
 
 def save_settings(d):
-    SETTINGS_PATH.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
+    """原子写：先写 .tmp 再 os.replace，并保留上一版 .bak（避免写一半变默认值）。"""
+    d = sanitize_settings(d)
+    SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if SETTINGS_PATH.exists():
+        try:
+            SETTINGS_BAK.write_bytes(SETTINGS_PATH.read_bytes())
+        except Exception:
+            pass
+    tmp = SETTINGS_PATH.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, SETTINGS_PATH)
+    return d
 
 
-VERSION = "2.0.0"
+def _const_eq(a, b):
+    """定长比较，别让访问码能被时间侧信道猜。"""
+    try:
+        return hmac.compare_digest(str(a or "").encode("utf-8"), str(b or "").encode("utf-8"))
+    except Exception:
+        return False
+
+
+def _code_token(s):
+    """cookie 里不放明文访问码，放盐化 HMAC。"""
+    code = str(s.get("access_code") or "")
+    salt = str(s.get("cookie_salt") or "")
+    if not code or not salt:
+        return ""
+    return hmac.new(salt.encode("utf-8"), code.encode("utf-8"), "sha256").hexdigest()[:40]
+
+
+def _child_env():
+    """子进程统一 UTF-8：Windows 默认 cp936 会让中文输出变 U+FFFD。"""
+    env = dict(os.environ)
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
+    return env
+
+
+VERSION = "2.0.1"
 COOKIE_KEY = "xbm_key"
+
+
+def _mask_code(v):
+    v = str(v or "")
+    if not v:
+        return ""
+    return "\u2022" * max(1, len(v) - 2) + v[-2:]
 
 
 def is_local(ip):
@@ -173,7 +305,10 @@ def log(msg):
     with LOCK:
         STATE["log"].append(f"{time.strftime('%H:%M:%S')} {msg}")
         STATE["log"] = STATE["log"][-80:]
-    print(msg, flush=True)
+    try:
+        print(msg, flush=True)
+    except Exception:
+        pass          # pythonw 没有控制台、cp936 管道也会编码失败：日志留在 STATE 里
 
 
 # ---------------------------------------------------------------- Chrome
@@ -204,7 +339,7 @@ def chrome_args(s, visible, url):
 def kill_our_chrome(s=None):
     """只杀用的是本项目 profile 的 chrome，不碰用户自己的浏览器。"""
     s = s or load_settings()
-    prof = str(profile_dir(s)).replace("\\", "\\\\")
+    prof = str(profile_dir(s))          # 别转义反斜杠：转了 PowerShell -like 永远匹配不到
     if os.name != "nt":
         subprocess.run(["pkill", "-f", f"--user-data-dir={profile_dir(s)}"], capture_output=True)
         return
@@ -256,7 +391,7 @@ def run_semantic():
         log("载入本地 embedding 模型并计算向量…")
         code = subprocess.run(
             [sys.executable, str(ROOT / "semantic.py")],
-            cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace",
+            cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace", env=_child_env(),
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=3600)
         for line in (code.stdout or "").splitlines()[-10:]:
             log(line)
@@ -308,7 +443,7 @@ def run_pipeline(reason="手动刷新"):
             STATE["step"] = "抓取书签"
         code = subprocess.run(
             [sys.executable, str(ROOT / "collect.py"), "--port", str(int(s.get("debug_port") or 9222))],
-            cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace",
+            cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace", env=_child_env(),
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=1800)
         for line in (code.stdout or "").splitlines()[-6:]:
             log(line)
@@ -319,7 +454,7 @@ def run_pipeline(reason="手动刷新"):
             STATE["step"] = "分类整理"
         code = subprocess.run(
             [sys.executable, str(ROOT / "organize.py")],
-            cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace",
+            cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace", env=_child_env(),
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=900)
         for line in (code.stdout or "").splitlines()[:8]:
             log(line)
@@ -432,17 +567,26 @@ def ingest_items(items, handle="", mode="bookmark"):
 def reclassify():
     """改了手动分类后重跑 organize.py（只重算分类/导出，不抓取）。"""
     s = load_settings()
+    with LOCK:
+        if STATE["running"]:
+            return False, "App 正在刷新，等它跑完再改分类"
+        STATE.update(running=True, step="重新分类", err="")
     try:
         code = subprocess.run(
             [sys.executable, str(ROOT / "organize.py")],
-            cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace",
+            cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace", env=_child_env(),
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=900)
         if code.returncode != 0:
-            return False, (code.stderr or code.stdout or "重新分类失败").strip().splitlines()[-1]
+            msg = (code.stderr or code.stdout or "重新分类失败").strip().splitlines()[-1]
+            with LOCK:
+                STATE.update(running=False, step="失败", err=msg)
+            return False, msg
         with LOCK:
-            STATE.update(count=build_meta(s).get("total", 0))
+            STATE.update(running=False, step="完成", err="", count=build_meta(s).get("total", 0))
         return True, "ok"
     except Exception as e:
+        with LOCK:
+            STATE.update(running=False, step="失败", err=str(e))
         return False, str(e)
 
 
@@ -610,8 +754,8 @@ def load_items(s=None, limit_text=900):
         return []
     try:
         its = json.loads(p.read_text(encoding="utf-8")).get("items") or []
-    except Exception:
-        return []
+    except Exception as e:
+        raise RuntimeError("data/items.json 读不出来（%s）：修好或重新刷新一次" % e)
     out = []
     for it in its:
         d = dict(it)
@@ -687,18 +831,36 @@ def _login_worker(s):
 
 # ---------------------------------------------------------------- HTTP
 
+class LocalServer(ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True          # 必须在构造前生效，否则重启会撞 TIME_WAIT
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "XBookmarks/2.0"
+    timeout = 15                        # 慢连接别把线程池拖死
 
     def log_message(self, fmt, *args):
         pass
 
     # -------- helpers
+    @staticmethod
+    def _origin_ok(o):
+        """允许的来源：浏览器扩展、本机、局域网（手机用局域网地址直连时也会带 Origin）。"""
+        if not o:
+            return True
+        if o.startswith("chrome-extension://") or o.startswith("http://127.0.0.1") \
+                or o.startswith("http://localhost") or o == "null":
+            return True
+        for pre in ("http://192.168.", "http://10.", "http://172."):
+            if o.startswith(pre):
+                return True
+        return False
+
     def _cors(self):
-        """只放行浏览器扩展与本地页面，方便「桥」直接 POST 进来。"""
+        """只放行浏览器扩展与本地/局域网页面，方便「桥」直接 POST 进来。"""
         o = self.headers.get("Origin") or ""
-        allow = o.startswith("chrome-extension://") or o.startswith("http://127.0.0.1") \
-            or o.startswith("http://localhost")
+        allow = bool(o) and self._origin_ok(o)
         if allow:
             self.send_header("Access-Control-Allow-Origin", o)
             self.send_header("Vary", "Origin")
@@ -741,9 +903,16 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def body_json(self):
-        n = int(self.headers.get("Content-Length") or 0)
-        if not n:
+    def body_json(self, limit=1 << 20):
+        self._too_big = False
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except Exception:
+            n = 0
+        if n <= 0:
+            return {}
+        if n > limit:
+            self._too_big = True
             return {}
         try:
             return json.loads(self.rfile.read(n).decode("utf-8"))
@@ -763,11 +932,16 @@ class Handler(BaseHTTPRequestHandler):
     def _authed(self):
         s = load_settings()
         code = str(s.get("access_code") or "")
-        if not code or is_local(self.client_address[0]):
+        if is_local(self.client_address[0]):
             return True
-        if self._cookies().get(COOKIE_KEY) == code:
+        if not code:
+            return False                    # 没设码就不许从局域网进
+        tok = _code_token(s)
+        got = self._cookies().get(COOKIE_KEY) or ""
+        if got and (_const_eq(got, tok) or _const_eq(got, code)):
             return True
-        return self.headers.get("X-XBM-Key") == code
+        hdr = self.headers.get("X-XBM-Key") or ""
+        return bool(hdr) and (_const_eq(hdr, code) or _const_eq(hdr, tok))
 
     def _need_key(self):
         if self.path.startswith("/api/"):
@@ -787,8 +961,12 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/manifest.webmanifest":
             return self.send_file(WEB / "manifest.webmanifest", "application/manifest+json; charset=utf-8")
         if p.startswith("/icon-") and p.endswith(".png"):
-            f = WEB / p.lstrip("/")
-            if f.exists():
+            f = (WEB / p.lstrip("/")).resolve()
+            try:
+                inside = f.is_relative_to(WEB.resolve())
+            except AttributeError:
+                inside = str(f).startswith(str(WEB.resolve()) + os.sep)
+            if inside and f.is_file():
                 return self.send_file(f, "image/png")
         if p == "/unlock":
             return self.send_html(unlock_html())
@@ -807,15 +985,25 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if p == "/api/state":
-            items = load_items(s)
+            try:
+                items = load_items(s)
+            except Exception as e:
+                return self.send_json({"error": str(e), "items": [], "meta": build_meta(s),
+                                       "login": LOGIN, "settings": {}}, 500)
+            pub = {k: v for k, v in s.items()
+                   if k not in ("chrome_path", "llm_key", "cookie_salt")}
+            pub["has_llm_key"] = bool(s.get("llm_key"))
+            if not is_local(self.client_address[0]):
+                pub["access_code"] = _mask_code(pub.get("access_code"))
+                pub["code_masked"] = True
             return self.send_json({
                 "items": items,
                 "meta": build_meta(s),
-                "settings": {k: v for k, v in s.items() if k not in ("chrome_path",)},
+                "settings": pub,
                 "login": LOGIN,
                 "refresh": {k: STATE[k] for k in ("running", "step", "err", "count", "at")},
                 "semantic": sem_meta(s),
-            "version": VERSION,
+                "version": VERSION,
             })
 
         if p == "/api/item":
@@ -828,10 +1016,13 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/net":
             ip = lan_ip()
             port = int(s.get("port") or 8900)
+            code = str(s.get("access_code") or "")
+            local = is_local(self.client_address[0])
             return self.send_json({
                 "bind": str(s.get("bind") or "127.0.0.1"),
                 "lan_ip": ip, "port": port,
-                "access_code": str(s.get("access_code") or ""),
+                "access_code": code if local else _mask_code(code),
+                "code_masked": not local,
                 "lan_url": ("http://%s:%d/" % (ip, port)) if ip else "",
             })
 
@@ -861,7 +1052,17 @@ class Handler(BaseHTTPRequestHandler):
         s = load_settings()
 
         if p == "/api/unlock":
-            n = int(self.headers.get("Content-Length") or 0)
+            ip = self.client_address[0]
+            fails, until = UNLOCK_FAIL.get(ip, (0, 0.0))
+            now = time.time()
+            if until > now:
+                return self.send_html(unlock_html("试错太多了，请 %d 秒后再试" % int(until - now)), 429)
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+            except Exception:
+                n = 0
+            if n > 4096:
+                return self.send_html(unlock_html("请求太大"), 413)
             raw = self.rfile.read(n).decode("utf-8", "replace") if n else ""
             ctype = (self.headers.get("Content-Type") or "").lower()
             form = {}
@@ -873,15 +1074,21 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 form = {k: v[0] for k, v in parse_qs(raw).items()}
             code = str((form or {}).get("code") or "").strip()
-            if code and code == str(s.get("access_code") or ""):
+            want = str(s.get("access_code") or "")
+            if code and want and _const_eq(code, want):
+                UNLOCK_FAIL.pop(ip, None)
                 self.send_response(303)
                 self._cors()
                 self.send_header("Location", "/")
                 self.send_header("Set-Cookie", "%s=%s; Path=/; Max-Age=31536000; SameSite=Lax; HttpOnly"
-                                 % (COOKIE_KEY, code))
+                                 % (COOKIE_KEY, _code_token(s) or code))
                 self.send_header("Content-Length", "0")
                 self.end_headers()
                 return
+            fails += 1
+            wait = min(300, 2 ** min(fails, 8))
+            UNLOCK_FAIL[ip] = (fails, now + wait)
+            log("访问码错误：%s 第 %d 次，%d 秒内不再受理" % (ip, fails, wait))
             return self.send_html(unlock_html("访问码不对"), 401)
 
         if not self._authed():
@@ -895,6 +1102,8 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/api/ingest":
             body = self.body_json()
+            if getattr(self, "_too_big", False):
+                return self.send_json({"ok": False, "msg": "书签数据太大（上限 1MB），请分批同步"}, 413)
             items = (body or {}).get("items") if isinstance(body, dict) else None
             if not isinstance(items, list) or not items:
                 return self.send_json({"ok": False, "msg": "没有收到书签数据"}, 400)
@@ -954,7 +1163,8 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 return self.send_json({"ok": False, "msg": "翻译失败：%s" % e}, 502)
             if not res:
-                return self.send_json({"ok": False, "msg": err or "翻译失败"}, 502)
+                code = 400 if (err and "没有正文" in err) else 502
+                return self.send_json({"ok": False, "msg": err or "翻译失败"}, code)
             cache[key] = {"text": res["text"], "lang": res.get("src") or "",
                           "provider": res.get("provider") or "", "at": time.strftime("%Y-%m-%d %H:%M")}
             save_trans(s, cache)
@@ -984,13 +1194,26 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/api/settings":
             body = self.body_json()
+            if getattr(self, "_too_big", False):
+                return self.send_json({"ok": False, "msg": "请求太大"}, 413)
             if not isinstance(body, dict):
                 return self.send_json({"error": "bad body"}, 400)
+            # 能改代理/LLM 地址就等于能把 llm_key 和翻译流量导走：非本机必须重输访问码
+            risky = [k for k in ("llm_base", "llm_key", "proxy")
+                     if k in body and str(body.get(k)) != str(s.get(k))]
+            if risky and not is_local(self.client_address[0]):
+                if not _const_eq(str(body.get("confirm_code") or ""), str(s.get("access_code") or "")):
+                    return self.send_json({"ok": False, "need_code": True, "keys": risky,
+                                           "msg": "改代理 / 翻译地址 / 密钥需要重新输入访问码"}, 403)
+            merged = dict(s)
             for k in DEFAULTS:
                 if k in body:
-                    s[k] = body[k]
-            save_settings(s)
-            return self.send_json({"ok": True, "settings": s})
+                    merged[k] = body[k]
+            clean = save_settings(merged)
+            fixed = sorted(k for k in merged if k in DEFAULTS and merged[k] != clean[k])
+            return self.send_json({"ok": True, "settings": clean,
+                                   "warn": ("有 %d 项取值不合法，已回退到允许范围：%s"
+                                            % (len(fixed), "、".join(fixed))) if fixed else ""})
 
         return self.send_json({"error": "not found"}, 404)
 
@@ -1030,8 +1253,7 @@ def main(argv=None):
         save_settings(s)
         print("已生成访问码：%s" % s["access_code"])
 
-    srv = ThreadingHTTPServer((bind, port), Handler)
-    srv.allow_reuse_address = False
+    srv = LocalServer((bind, port), Handler)
 
     def auto_loop():
         while True:

@@ -3,10 +3,13 @@
 //       2) 用同一套 headers 翻页，把所有书签条目捞出来
 // 不读 cookie、不存 token，headers 只在页面内存里用一次。
 (() => {
-  if (window.__XBM_BRIDGE && window.__XBM_BRIDGE.v === 1) return;
+  if (window.__XBM_BRIDGE && window.__XBM_BRIDGE.v === 2) return;
 
-  const S = { url: null, headers: null, hits: 0, at: 0 };
+  const S = { url: null, headers: null, hits: 0, at: 0, lastErr: "" };
   const isBkm = (u) => typeof u === "string" && /\/i\/api\/graphql\/[^/]+\/Bookmarks(\?|$)/.test(u);
+
+  // 重放时不能带这些：由浏览器自己算/会和安全校验冲突
+  const DROP = { "content-length": 1, "accept-encoding": 1, host: 1, connection: 1, cookie: 1 };
 
   function headersOf(input, init) {
     let h = (init && init.headers) || (input && input.headers);
@@ -22,13 +25,28 @@
     return Object.keys(out).length ? out : null;
   }
 
+  function cleanHeaders(h) {
+    const out = {};
+    Object.keys(h).forEach((k) => { if (!DROP[k.toLowerCase()]) out[k] = h[k]; });
+    return out;
+  }
+
+  function hash(s) {
+    let x = 2166136261;
+    for (let i = 0; i < s.length; i++) { x ^= s.charCodeAt(i); x = Math.imul(x, 16777619); }
+    return (x >>> 0).toString(36);
+  }
+
   const rawFetch = window.fetch;
   window.fetch = function (input, init) {
     try {
-      const u = typeof input === "string" ? input : input && input.url;
+      const u = typeof input === "string" ? input : (input && input.url);
       if (isBkm(u)) {
+        S.url = u;
+        S.at = Date.now();
         const h = headersOf(input, init);
-        if (h) { S.url = u; S.headers = h; S.hits++; S.at = Date.now(); }
+        if (h) { S.headers = cleanHeaders(h); S.hits++; S.lastErr = ""; }
+        else { S.lastErr = "抓到了书签请求，但读不到它的请求头（X 可能换了调用方式）"; }
       }
     } catch (e) { /* 旁听失败不影响页面 */ }
     return rawFetch.apply(this, arguments);
@@ -46,8 +64,13 @@
       if (isBkm(this.__xbmUrl)) {
         if (!this.__xbmH) this.__xbmH = {};
         this.__xbmH[k] = v;
-        if (this.__xbmH["authorization"] || this.__xbmH["Authorization"]) {
-          S.url = this.__xbmUrl; S.headers = Object.assign({}, this.__xbmH); S.hits++; S.at = Date.now();
+        const lk = String(k).toLowerCase();
+        if (lk === "authorization" || lk === "x-csrf-token") {
+          S.url = this.__xbmUrl;
+          S.headers = cleanHeaders(this.__xbmH);
+          S.hits++;
+          S.at = Date.now();
+          S.lastErr = "";
         }
       }
     } catch (e) { /* ignore */ }
@@ -75,12 +98,20 @@
     return "";
   }
 
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
   async function collect(maxPages) {
-    if (!S.url || !S.headers) {
-      return { ok: false, err: "还没抓到书签请求：先在页面里打开 x.com/i/history 的「Bookmarks」标签，等列表刷出来再点同步", pages: 0, count: 0, entries: [] };
+    if (!S.url) {
+      return { ok: false, err: "还没抓到书签请求：先在页面里打开 x.com/i/history 的「书签」标签，等列表刷出来再点同步", pages: 0, count: 0, items: [] };
+    }
+    if (!S.headers) {
+      return { ok: false, err: S.lastErr || "抓到了书签请求但没读到请求头，请刷新页面后重试", pages: 0, count: 0, items: [] };
     }
     const base = S.url.split("?")[0];
-    const features = qsParam(S.url, "features") || "{}";
+    const features = qsParam(S.url, "features");
+    if (!features) {
+      return { ok: false, err: "书签请求里没有 features 参数，没法照它的签名翻页：请刷新 x.com 后再试", pages: 0, count: 0, items: [] };
+    }
     const v0 = qsParam(S.url, "variables");
     let vars0 = {};
     try { vars0 = v0 ? JSON.parse(v0) : {}; } catch (e) { vars0 = {}; }
@@ -105,6 +136,10 @@
         err = "请求失败：" + e.message;
         break;
       }
+      if (r.status === 429) {
+        await wait(60000);            // 限流了就等一分钟，再给一次机会
+        try { r = await fetch(u, { headers: S.headers, credentials: "include" }); } catch (e) { err = "请求失败：" + e.message; break; }
+      }
       if (!r.ok) {
         err = "HTTP " + r.status + " " + (await r.text()).slice(0, 120);
         break;
@@ -123,7 +158,8 @@
           if (c.cursorType === "Bottom") next = c.value;
           else if (c.cursorType === "ShowMore" && !next) next = c.value;
           if (c.cursorType || c.entryType === "TimelineTimelineCursor") continue;
-          const k = e.entryId || Math.random().toString(36);
+          // entryId 缺失时用内容哈希当 key，保证同一页重放不会重复计入
+          const k = e.entryId || ("h" + hash(JSON.stringify(e).slice(0, 400)));
           if (seen[k]) continue;
           seen[k] = 1;
           added++;
@@ -139,24 +175,23 @@
       } else {
         dry = 0;
       }
-      if (!next) { err = "没有下一页游标"; break; }
+      if (!next) { err = ""; break; }   // 到底了，不是错误
       cursor = next;
-      await new Promise((res) => setTimeout(res, 1200));
+      await wait(1200);
     }
     const items = [];
     for (const e of out) {
       const r = (((e.content || {}).itemContent || {}).tweet_results || {}).result;
       if (!r || typeof r !== "object") continue;
-      let t = r.__typename === "TweetWithVisibilityResults" && r.tweet ? r.tweet : r;
+      const t = r.__typename === "TweetWithVisibilityResults" && r.tweet ? r.tweet : r;
       if (t && t.rest_id) items.push(t);
     }
-    return { ok: items.length > 0, err: err, pages: pages, count: items.length,
-             raw: out.length, log: log, items: items };
+    return { ok: items.length > 0, err: items.length ? err : (err || "一页都没抓到条目"), pages: pages, count: items.length, raw: out.length, log: log, items: items };
   }
 
   window.__XBM_BRIDGE = {
-    v: 1,
-    state: () => ({ captured: !!S.url, hits: S.hits, at: S.at }),
+    v: 2,
+    state: () => ({ captured: !!S.url, hits: S.hits, at: S.at, lastErr: S.lastErr }),
     collect: collect,
   };
 })();

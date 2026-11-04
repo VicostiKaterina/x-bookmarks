@@ -22,3 +22,7 @@ python.txt
 *.err
 models/
 data/emb_cache.npz
+
+# 备份文件
+*.bak
+*.tmp

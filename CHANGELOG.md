@@ -1,5 +1,28 @@
 # Changelog
 
+## [2.0.1] - 2026-11-04
+
+一次以「别带 bug 发布」为目标的加固：三路只读审计（后端 / 扩展 / 前端）+ 运行时冒烟，修掉 6 个真问题。
+
+### 修复
+
+- **隐私（高）**：私密卡片之前只是 CSS 遮住，正文和图片仍在 DOM 里，Ctrl+F / 查看器能读到 → 锁定状态下不再渲染正文和 `<img>`
+- **安全（高）**：`/api/settings` 不校验类型与范围，`{"port": "abc"}` 这类值会落盘并让下次启动崩溃 → 全部字段先过 `sanitize_settings()`，非法值回退并返回 `warn`
+- **安全（高）**：`settings.json` 非原子写 + 解析失败静默退回默认 → `access_code` 可能变空，而在 `0.0.0.0` 监听时等于全网无鉴权 → 原子写 + `.bak` 恢复 + 空码不再放行局域网
+- **安全（高）**：`/api/unlock` 无退避、cookie 里存的是明文访问码 → 按 IP 指数退避（429）、cookie 改 HMAC 签名令牌、`/api/state` 只下发白名单字段（不再吐 `llm_key`、`chrome_path`）
+- **数据（高）**：`items.json` 直接 `open("w")` 流式写，崩溃/断电会留下半截文件，下次读到空数据再覆盖一次 → 临时文件 + `os.replace` + `.bak`；读不出来时报错而不是显示 0 条
+- **数据（高）**：Excel 正开着 `exports/bookmarks.xlsx` 时 `wb.save` 抛 PermissionError，整轮分类白跑 → 写 `.tmp` 再替换，失败只告警
+- **中**：`reclassify` 与刷新无互斥（并发写同一个 `items.json`）、icon 路由可路径穿越、子进程按 UTF-8 读 cp936 输出导致中文乱码、`kill_our_chrome` 双反斜杠匹配恒失败、`body_json` / unlock 无体积上限、`allow_reuse_address` 设置无效、慢连接拖死线程（`Handler.timeout=15`）
+- **中**：`organize.py` 忽略 `settings.json` 里的 `data_dir` / `export_dir`
+- **中**：私密关键词含单字 `乳` `喷` 等，`乳制品真好吃` 会被判成私密 → 改为 ≥2 字词，并补 `骚货 / 淫荡 / 淫秽 / 乳首 / 喷水`
+- **中**：`media_only_smooth` 用的是全局敏感率（708/1028 恒过闸），会把普通账号的纯图帖也拖进去 → 改为按作者统计；`author_smooth` 要求同一作者 ≥2 条敏感帖才画像
+- **低**：`cdp.py` 的 `drain()` 把 socket 超时改成 2s 不恢复、事件无限堆积；`semantic.py` 模型缺失时直接抛 traceback、`semantic.json` 非原子写
+- **扩展（重写）**：等标签页 `complete` 再注入（原来盲打 `executeScript` 并吞掉异常）、按 `[role="tab"][href*="/bookmarks"]` 点书签页（原来只认中英文字）、结果按 200 条分块搬回（原来一次性 structured-clone 几十 MB）、校验响应体的 `ok`（原来 202 也当成功）、并发锁、`minimum_chrome_version: 111`、剔除 `content-length` 等重放头
+
+### 新增测试
+
+- `tests/test_organize.py` 14 → 20 条：私密词表不含单字、日常词不误判私密、`write_items` 原子写并留 `.bak`、`data_dir` 生效、`sanitize_settings` 夹取与丢弃未知键、`_code_token` 加盐稳定、跨账号不被连带
+
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 ## [2.0.0] - 2026-11-04

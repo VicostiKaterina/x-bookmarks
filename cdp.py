@@ -53,17 +53,23 @@ class CDP:
 
     def drain(self, seconds, predicate):
         end = time.time() + seconds
+        old_to = self.ws.gettimeout()
         self.ws.settimeout(2)
-        while time.time() < end:
-            try:
-                msg = json.loads(self.ws.recv())
-            except Exception:
-                continue
-            if "method" in msg:
-                self.events.append(msg)
-                if predicate(msg):
-                    return msg
-        return None
+        try:
+            while time.time() < end:
+                try:
+                    msg = json.loads(self.ws.recv())
+                except Exception:
+                    continue
+                if "method" in msg:
+                    self.events.append(msg)
+                    if len(self.events) > 500:
+                        del self.events[:-200]
+                    if predicate(msg):
+                        return msg
+            return None
+        finally:
+            self.ws.settimeout(old_to)
 
     def close(self):
         try:

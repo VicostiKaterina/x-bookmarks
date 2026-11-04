@@ -6,7 +6,7 @@
 > with time & engagement sorting, search, and one-click jump to the original post.
 > **Runs entirely on your machine. No API key, no uploads, no telemetry.**
 
-![version](https://img.shields.io/badge/version-2.0.0-blue) ![tests](https://img.shields.io/badge/tests-14%20passed-brightgreen) ![license](https://img.shields.io/badge/license-MIT-green) ![python](https://img.shields.io/badge/python-3.9%2B-3776ab)
+![version](https://img.shields.io/badge/version-2.0.1-blue) ![tests](https://img.shields.io/badge/tests-14%20passed-brightgreen) ![license](https://img.shields.io/badge/license-MIT-green) ![python](https://img.shields.io/badge/python-3.9%2B-3776ab)
 
 | Desktop | Mobile |
 | --- | --- |
@@ -85,7 +85,10 @@ python -m unittest discover -s tests -v
 - The server binds `127.0.0.1` by default
 - Sessions, bookmarks, categories, translations — all local only
 - `data/`, `exports/`, `settings.json`, `profile*/`, `models/` are gitignored — never commit them
+- Locked private cards never put their text or images into the DOM (not a CSS mask), so Ctrl+F / devtools / extensions cannot read them
 - If you enable LAN access, set an access code; prefer Tailscale over exposing the port
+- On LAN, the access code stays visible only on the local machine; unlock failures back off per IP (HTTP 429) and the cookie holds an HMAC token, not the code
+- Settings and `data/items.json` are written atomically (temp file + rename, `.bak` kept); invalid settings fall back to defaults with a warning, and an unreadable `items.json` shows an error instead of "0 bookmarks"
 
 ## Known limitations
 

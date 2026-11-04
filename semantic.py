@@ -44,9 +44,16 @@ def load_items():
 
 
 def embed(texts):
-    from fastembed import TextEmbedding
+    try:
+        from fastembed import TextEmbedding
+    except Exception as e:  # noqa: BLE001
+        raise SystemExit("没装 fastembed：pip install fastembed onnxruntime 后再跑（%s）" % e)
     MODELS.mkdir(parents=True, exist_ok=True)
-    model = TextEmbedding(model_name=MODEL_NAME, cache_dir=str(MODELS))
+    try:
+        model = TextEmbedding(model_name=MODEL_NAME, cache_dir=str(MODELS))
+    except Exception as e:  # noqa: BLE001
+        raise SystemExit("本地模型加载失败（%s）。第一次跑需要联网下载 %s 到 models/，之后就能离线用" %
+                         (e, MODEL_NAME))
     out = []
     for v in model.embed(texts, batch_size=32):
         out.append(np.asarray(v, dtype=np.float32))
@@ -169,7 +176,9 @@ def main(argv=None):
     payload = {"generated": time.strftime("%Y-%m-%d %H:%M:%S"), "model": MODEL_NAME,
                "topk": TOPK, "temp": TEMP, "count": len(items),
                "items": {it["id"]: r for it, r in zip(items, res)}}
-    (DATA / "semantic.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    tmp = DATA / "semantic.json.tmp"
+    tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, DATA / "semantic.json")
 
     misc = [(it, r) for it, r in zip(items, res) if (it.get("cat") or "misc") == "misc"]
     moved = {}

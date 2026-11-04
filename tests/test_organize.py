@@ -128,8 +128,89 @@ class TestSmooth(unittest.TestCase):
             r["cat"] = "private" if i < 2 else "misc"
             r["conf"] = 0.5
             rows.append(r)
+        # 另一个干净账号的纯图待定帖不该被连带
+        for i in range(3):
+            o = organize.norm(tweet("9%d" % i, handle="clean", text="",
+                                    sensitive=False,
+                                    media=[{"type": "photo", "media_url_https": "https://pbs.twimg.com/y.jpg"}]))
+            o["cat"] = "misc"
+            o["conf"] = 0.5
+            rows.append(o)
         organize.media_only_smooth(rows)
         self.assertEqual(rows[2]["cat"], "private")
+        self.assertEqual([r["cat"] for r in rows[4:]], ["misc", "misc", "misc"],
+                         "不该按全站比例把别的账号也拖进私密")
+
+
+class TestSafety(unittest.TestCase):
+    """回归：隐私与数据安全（都是审计里真踩到的坑）。"""
+
+    def test_rules_have_no_single_char_private_word(self):
+        rules = json.loads((BASE / "rules.json").read_text(encoding="utf-8"))
+        kws = rules["categories"]["private"]["keywords"]
+        self.assertEqual([w for w in kws if len(w) == 1], [],
+                         "私密类里有单字词，会把「乳制品」「喷子」这类日常帖误判")
+
+    def test_daily_words_not_private(self):
+        for text in ("乳制品真好吃，推荐这款酸奶", "今天喷子好多，评论区没法看"):
+            r = organize.classify(organize.norm(tweet("1", "x", "X", text)))
+            self.assertNotEqual(r["cat"], "private", "%r 被误判成私密（%s）" % (text, r.get("why")))
+
+    def test_write_items_is_atomic_and_keeps_bak(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "items.json"
+            a = organize.classify(organize.norm(tweet("1", "alice", "Alice", "第一篇")))
+            b = organize.classify(organize.norm(tweet("2", "bob", "Bob", "第二篇")))
+            organize.write_items([a], p)
+            first = p.read_text(encoding="utf-8")
+            organize.write_items([b], p)
+            self.assertEqual(json.loads(first)["items"][0]["id"], "1")
+            self.assertEqual(json.loads(p.read_text(encoding="utf-8"))["items"][0]["id"], "2")
+            self.assertTrue(p.with_name("items.json.bak").exists(), "应该留一份 .bak")
+            self.assertFalse(p.with_name("items.json.tmp").exists(), "临时文件要清掉")
+
+    def test_data_dir_comes_from_settings(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "settings.json").write_text(json.dumps({"data_dir": "mydata"}), encoding="utf-8")
+            data, exports = organize._settings_paths(root)
+            self.assertEqual(data, root / "mydata")
+            self.assertEqual(exports, root / "exports")
+
+    def test_sanitize_settings_clamps_and_drops(self):
+        try:
+            import serve
+        except Exception as e:  # 依赖不全时跳过，不假装通过
+            self.skipTest("import serve 失败：%s" % e)
+        clean = serve.sanitize_settings({
+            "port": "abc", "semantic_threshold": 99, "auto_refresh_hours": -5,
+            "bind": "8.8.8.8", "blur_private": "yes", "default_sort": "hack",
+            "unknown_key": 123, "access_code": "  123456  ",
+        })
+        self.assertEqual(clean["port"], serve.DEFAULTS["port"])
+        self.assertLessEqual(clean["semantic_threshold"], 0.95)
+        self.assertGreaterEqual(clean["semantic_threshold"], 0.4)
+        self.assertEqual(clean["auto_refresh_hours"], 0)
+        self.assertEqual(clean["bind"], "127.0.0.1")
+        self.assertIs(clean["blur_private"], True)
+        self.assertEqual(clean["default_sort"], "time_desc")
+        self.assertNotIn("unknown_key", clean)
+        self.assertEqual(clean["access_code"], "123456")
+        self.assertTrue(clean["proxy"] == "" and clean["llm_key"] == "")
+
+    def test_code_token_is_stable_and_salted(self):
+        try:
+            import serve
+        except Exception as e:
+            self.skipTest("import serve 失败：%s" % e)
+        a = serve._code_token({"cookie_salt": "aa", "access_code": "123456"})
+        b = serve._code_token({"cookie_salt": "aa", "access_code": "123456"})
+        c = serve._code_token({"cookie_salt": "bb", "access_code": "123456"})
+        self.assertEqual(a, b)
+        self.assertNotEqual(a, c)
+        self.assertNotIn("123456", a)
+        self.assertTrue(serve._const_eq(a, b))
+        self.assertFalse(serve._const_eq(a, c))
 
 
 class TestKwHit(unittest.TestCase):

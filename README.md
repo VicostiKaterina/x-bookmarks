@@ -5,7 +5,7 @@
 自动分成 **AI / 技术 / 生活 / 私密** 四类，支持时间与热度排序、全文搜索、一键跳原帖、翻译、手机访问。
 **全程在本机运行 —— 不要 API key，不登录第三方服务，一个字节都不上传。**
 
-![version](https://img.shields.io/badge/version-2.0.0-blue)
+![version](https://img.shields.io/badge/version-2.0.1-blue)
 ![tests](https://img.shields.io/badge/tests-14%20passed-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![python](https://img.shields.io/badge/python-3.9%2B-3776ab)
@@ -276,6 +276,15 @@ A：手动改几条 → 设置里跑一次语义分类 → 或者往 `rules.json
 - 登录态、书签、分类、翻译缓存全部在 `data/` 与 `profile/`，都在 `.gitignore` 里
 - 想彻底清干净：删 `profile/`（登录态）+ `data/`（书签）
 - 分享截图/导出前留意「私密」分类里的内容
+- 「私密」卡片在锁定状态下，正文和图片**根本不会写进网页**（不是用 CSS 遮住），Ctrl+F、查看器、扩展都读不到
+- 打开局域网时：
+  - `access_code` 只在本机显示，手机侧接口只回 `code_masked`
+  - 输错访问码按 IP 指数退避（最长 5 分钟），连续错会回 429
+  - 校验通过后发的是 HMAC 签名令牌，不是访问码本身；换码即全部失效
+  - `/api/settings` 改代理、翻译地址、密钥这类「能把数据送出去」的字段，要求重新输入访问码
+  - 单请求体上限 1MB（解锁接口 4KB），超了回 413
+- `settings.json` 写入是原子的（临时文件 + rename），坏了会从 `settings.json.bak` 恢复并告警；配置值一律先校验再落盘，非法值回退到默认并提示
+- `data/items.json` 同样是原子写 + 保留 `.bak`；读不出来时页面会**报错而不是显示 0 条**，避免用空数据覆盖你的库
 
 ## 已知限制
 
@@ -303,7 +312,7 @@ A：手动改几条 → 设置里跑一次语义分类 → 或者往 `rules.json
 python -m unittest discover -s tests -v
 ```
 
-自测在 Ubuntu / Windows、Python 3.9 与 3.12 上都能过（`python -m unittest discover -s tests`，14 条）。
+自测在 Ubuntu / Windows、Python 3.9 与 3.12 上都能过（`python -m unittest discover -s tests`，20 条）。
 代码地图、怎么补分类词、提交规范见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## License

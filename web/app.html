@@ -515,8 +515,8 @@ function card(it){
       ${(it.media||[]).length ? `<span class="when">${it.media.length} 媒体</span>` : ""}
     </div>
     <div class="locknote">🔒 私密内容已隐藏 · 点右上角「显示私密」查看（${(it.media||[]).length} 媒体）</div>
-    <div class="txt">${esc(it.text || "(无正文)")}</div>
-    ${mk ? `<div class="media">${mk}${more}</div>` : ""}
+    ${locked ? "" : `<div class="txt">${esc(it.text || "(无正文)")}</div>`}
+    ${(locked || !mk) ? "" : `<div class="media">${mk}${more}</div>`}
     <div class="foot">
       <span title="浏览">👁 ${fmt(it.views)}</span>
       <span title="点赞">♥ ${fmt(it.likes)}</span>
@@ -771,8 +771,11 @@ async function loadNet(){
   $("#sSemThr").value = SET.semantic_threshold || 0.6;
   $("#sLan").checked = on;
   const code = NET.access_code || "";
+  const masked = NET.code_masked || (!code && NET.has_code);
   $("#kLan").innerHTML = on
-    ? `局域网已开：<code>${esc(NET.lan_url || "—")}</code><br>访问码：<b>${esc(code || "(未设)")}</b><br>改完绑定要重启 App。`
+    ? `局域网已开：<code>${esc(NET.lan_url || "—")}</code><br>访问码：<b>${esc(code || "(未设)")}</b>`
+      + (masked ? `<br><span class="hint">（访问码只在电脑上显示；手机上用你之前记下的那串）</span>` : "")
+      + `<br>改完绑定要重启 App。`
     : `只在<b>本机</b>可访问（127.0.0.1）。手机要看得先打开上面的开关并重启 App。`;
 }
 
