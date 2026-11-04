@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "X 书签桥 · XBM Bridge",
+  "version": "1.1.0",
+  "description": "用你自己浏览器的 X 登录态抓取全部书签，一键同步到本机的「X 书签」App。",
+  "permissions": [
+    "scripting",
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://x.com/*",
+    "https://twitter.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://x.com/*",
+        "https://twitter.com/*"
+      ],
+      "js": [
+        "inject.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "X 书签桥"
+  },
+  "minimum_chrome_version": "111"
+}
