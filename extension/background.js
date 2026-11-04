@@ -226,8 +226,15 @@ async function sync(tabId) {
     await setStatus({ step: "已捕获书签请求" });
 
     await setStatus({ step: "抓取书签" });
-    const started = await inPage(tabId, pageCollect, [MAX_PAGES]);
-    if (!started || !started.started) throw new Error((started && started.err) || "启动抓取失败");
+    let started = await inPage(tabId, pageCollect, [MAX_PAGES]);
+    if (!started || !started.started) {
+      // 页面里没有桥接脚本 = 这个标签页在装扩展/重载扩展之前就开着，注入不进去。
+      // 重新走一遍「打开书签页」，它会 reload 页面把脚本注进去。
+      await setStatus({ step: "重新注入脚本" });
+      await openBookmarksPage(tabId);
+      started = await inPage(tabId, pageCollect, [MAX_PAGES]);
+      if (!started || !started.started) throw new Error((started && started.err) || "启动抓取失败");
+    }
 
     let last = { pages: 0, count: 0 };
     const t0 = Date.now();
@@ -242,9 +249,28 @@ async function sync(tabId) {
     }
 
     // 分块搬回 SW：200 条一次，避免一次性 clone 上百万字符把页面/SW 卡死
-    const meta = await tryInPage(tabId, pageMeta);
+    let meta = await tryInPage(tabId, pageMeta);
     if (!meta.ok || !meta.v) throw new Error("读取抓取结果失败：" + (meta.err || "页面没给出结果"));
-    if (!meta.v.ok) throw new Error(meta.v.err || "没抓到内容");
+    if (!meta.v.ok && /还没抓到书签请求/.test(meta.v.err || "")) {
+      // 页面在导航后把桥接状态重置了（请求还没发出）：重开书签页再抓一次
+      await setStatus({ step: "重试：重新打开书签页" });
+      await openBookmarksPage(tabId);
+      const again = await inPage(tabId, pageCollect, [MAX_PAGES]);
+      if (again && again.started) {
+        const t1 = Date.now();
+        for (;;) {
+          await sleep(1500);
+          const q = await tryInPage(tabId, pageProgress);
+          if (q.ok && q.v && q.v.prog) last = q.v.prog;
+          await setStatus({ step: "抓取书签", pages: last.pages, count: last.count });
+          if (q.v && q.v.done) break;
+          if (Date.now() - t1 > 1000 * 60 * 5) break;
+        }
+        meta = await tryInPage(tabId, pageMeta);
+        if (!meta.ok || !meta.v) throw new Error("读取抓取结果失败：" + (meta.err || ""));
+      }
+    }
+    if (!meta.v || !meta.v.ok) throw new Error((meta.v && meta.v.err) || "没抓到内容");
     const items = [];
     for (let i = 0; i < meta.v.count; i += CHUNK) {
       const part = await tryInPage(tabId, pageSlice, [i, CHUNK]);
@@ -275,7 +301,15 @@ async function sync(tabId) {
     });
     return { ok: true, count: items.length, pages: meta.v.pages, err: meta.v.err || "", account: j.account || handle };
   } catch (e) {
-    await setStatus({ state: "error", err: (e && e.message) || String(e), step: "失败" });
+    let diag = "";
+    try {
+      const d = await bridgeState(tabId);
+      let u = "";
+      try { u = (await chrome.tabs.get(tabId)).url || ""; } catch (e2) { u = ""; }
+      diag = "［诊断：桥接" + (d.alive ? "在" : "不在") + "，捕获" + (d.captured ? "有" : "无") +
+        "，hits=" + (d.hits || 0) + "，页面=" + (u ? u.replace(/^https:\/\/x\.com/, "") : "未知") + "］";
+    } catch (e3) { diag = ""; }
+    await setStatus({ state: "error", err: ((e && e.message) || String(e)) + " " + diag, step: "失败" });
     return { ok: false, err: (e && e.message) || String(e) };
   } finally {
     BUSY = false;

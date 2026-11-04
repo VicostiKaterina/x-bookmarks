@@ -47,6 +47,7 @@ function startPolling() {
 
 async function boot() {
   try {
+    try { $("#ver").textContent = "v" + chrome.runtime.getManifest().version; } catch (e) { /* ignore */ }
     const { server } = await chrome.storage.local.get({ server: "http://127.0.0.1:8900" });
     $("#srv").value = server;
 
@@ -89,8 +90,13 @@ $("#go").addEventListener("click", async () => {
   render({ state: "running", step: "启动中" }, PAGE, CAP);
   chrome.runtime.sendMessage({ type: "sync", tabId })
     .then(async (r) => {
+      if (r && r.ok) {
+        CAP = true;
+      } else {
+        const pb = await safeSend({ type: "probe", tabId });
+        if (pb && pb.state) CAP = !!pb.state.captured;
+      }
       const st = await safeSend({ type: "status" });
-      CAP = true;
       render(st, PAGE, CAP);
       stopPolling();
       if (r && r.ok) {

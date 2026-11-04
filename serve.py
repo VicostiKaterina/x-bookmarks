@@ -213,7 +213,7 @@ def _child_env():
     return env
 
 
-VERSION = "2.1.1"
+VERSION = "2.1.2"
 COOKIE_KEY = "xbm_key"
 
 
@@ -536,8 +536,49 @@ def save_overrides(s, ov):
     p.write_text(json.dumps(ov, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
 
 
+def _raw_list(path):
+    """读一份原始抓取结果（列表），坏文件当空处理。"""
+    if not path.exists():
+        return []
+    try:
+        d = json.loads(path.read_text(encoding="utf-8-sig"))
+    except Exception:
+        return []
+    return d if isinstance(d, list) else []
+
+
+def _item_key(it):
+    """尽量从各种形状的原始数据里取一个稳定 id，取不到返回空串。"""
+    if not isinstance(it, dict):
+        return ""
+    for k in ("id", "rest_id", "tweet_id", "id_str"):
+        v = it.get(k)
+        if v:
+            return str(v)
+    nested = it.get("legacy") if isinstance(it.get("legacy"), dict) else None
+    if nested and nested.get("id_str"):
+        return str(nested["id_str"])
+    if it.get("url"):
+        return "@" + str(it["url"])
+    return ""
+
+
+def merge_items(old, new):
+    """按 id 合并：老的在前，新的覆盖同 id，新增的追加在后面。扩展只抓到一部分时不会丢数据。"""
+    merged = {}
+    order = []
+    for it in list(old) + list(new):
+        k = _item_key(it)
+        if not k:
+            continue
+        if k not in merged:
+            order.append(k)
+        merged[k] = it
+    return [merged[k] for k in order]
+
+
 def ingest_items(items, handle="", mode="bookmark"):
-    """浏览器扩展桥把整批书签 POST 进来：落盘 -> 重跑分类 -> 更新 meta。"""
+    """浏览器扩展桥把整批书签 POST 进来：与本地已有数据合并 -> 落盘 -> 重跑分类 -> 更新 meta。"""
     s = load_settings()
     dd = data_dir(s)
     dd.mkdir(parents=True, exist_ok=True)
@@ -547,21 +588,22 @@ def ingest_items(items, handle="", mode="bookmark"):
             (dd / (raw.stem + ".bak" + raw.suffix)).write_bytes(raw.read_bytes())
         except Exception:
             pass
+    merged = merge_items(_raw_list(raw), items)
     tmp = raw.with_name(raw.stem + ".tmp")
-    tmp.write_text(json.dumps(items, ensure_ascii=False), encoding="utf-8")
+    tmp.write_text(json.dumps(merged, ensure_ascii=False), encoding="utf-8")
     tmp.replace(raw)
     try:
         mp = dd / "meta.json"
         meta = {}
         if mp.exists():
             meta = json.loads(mp.read_text(encoding="utf-8-sig"))
-        meta.update({"account": handle, "collected_at": time.strftime("%Y-%m-%d %H:%M"),
-                     "count": len(items), "mode": mode, "source": "extension"})
+        meta.update({"account": handle or meta.get("account") or "", "collected_at": time.strftime("%Y-%m-%d %H:%M"),
+                     "count": len(merged), "mode": mode, "source": "extension"})
         mp.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
         log("写 meta.json 失败：%s" % e)
     ok, msg = reclassify()
-    return ok, msg
+    return ok, msg, len(merged)
 
 
 def reclassify():
@@ -924,7 +966,7 @@ class LocalServer(ThreadingHTTPServer):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "XBookmarks/2.1"
+    server_version = "XBookmarks/2.1.2"
     timeout = 15                        # 慢连接别把线程池拖死
 
     def log_message(self, fmt, *args):
@@ -1223,8 +1265,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json({"ok": False, "msg": "App 正在刷新，稍后再试"}, 202)
                 STATE.update(running=True, step="插件同步", err="", log=[], started=time.time())
             try:
-                ok, msg = ingest_items(items, str((body or {}).get("handle") or ""),
-                                       str((body or {}).get("mode") or "bookmark"))
+                ok, msg, total_raw = ingest_items(items, str((body or {}).get("handle") or ""),
+                                                 str((body or {}).get("mode") or "bookmark"))
                 meta = build_meta(s)
                 with LOCK:
                     STATE.update(running=False, step="完成" if ok else "失败",
@@ -1233,8 +1275,8 @@ class Handler(BaseHTTPRequestHandler):
                                  err="" if ok else msg)
                 if not ok:
                     return self.send_json({"ok": False, "msg": msg}, 500)
-                log("插件同步完成：%d 条" % len(items))
-                return self.send_json({"ok": True, "count": len(items),
+                log("插件同步完成：收到 %d 条，合并后共 %d 条" % (len(items), total_raw))
+                return self.send_json({"ok": True, "count": total_raw, "received": len(items),
                                        "total": meta.get("total", 0),
                                        "account": meta.get("account") or (body or {}).get("handle") or ""})
             except Exception as e:

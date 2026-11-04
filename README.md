@@ -5,8 +5,8 @@
 自动分成 **AI / 技术 / 生活 / 私密** 四类，支持时间与热度排序、全文搜索、一键跳原帖、翻译、手机访问。
 **全程在本机运行 —— 不要 API key，不登录第三方服务，一个字节都不上传。**
 
-![version](https://img.shields.io/badge/version-2.1.1-blue)
-![tests](https://img.shields.io/badge/tests-31%20passed-brightgreen)
+![version](https://img.shields.io/badge/version-2.1.2-blue)
+![tests](https://img.shields.io/badge/tests-44%20passed-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![python](https://img.shields.io/badge/python-3.9%2B-3776ab)
 ![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
