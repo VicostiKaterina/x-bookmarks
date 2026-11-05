@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  :root{--bg:#0e1117;--card:#151a23;--line:#242c39;--txt:#e6ebf5;--dim:#8b96a8;
+        --pri:#3b82f6;--ok:#22c55e;--err:#ef4444}
+  *{box-sizing:border-box}
+  body{margin:0;width:320px;background:var(--bg);color:var(--txt);
+       font:13px/1.5 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+  .wrap{padding:14px}
+  h1{margin:0 0 2px;font-size:14px;font-weight:650;display:flex;align-items:center;gap:6px}
+  h1 span{font-weight:400;color:var(--dim);font-size:11px}
+  .sub{color:var(--dim);font-size:11.5px;margin:0 0 12px}
+  .box{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:10px 11px;margin-bottom:10px}
+  .row{display:flex;justify-content:space-between;gap:8px;font-size:12px;margin:3px 0}
+  .row b{font-weight:600}
+  .row .k{color:var(--dim)}
+  .st{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--dim)}
+  .dot.ok{background:var(--ok)} .dot.err{background:var(--err)} .dot.run{background:var(--pri)}
+  button{font:inherit;border-radius:8px;border:1px solid var(--line);background:#1b2230;color:var(--txt);
+         padding:8px 10px;cursor:pointer}
+  button:hover{background:#222b3b}
+  button.primary{background:var(--pri);border-color:var(--pri);color:#fff;font-weight:600;width:100%}
+  button.primary:disabled{opacity:.55;cursor:default}
+  .links{display:flex;gap:8px;margin-top:8px}
+  .links button{flex:1;font-size:12px}
+  input{width:100%;font:inherit;font-size:12px;background:#0f141c;border:1px solid var(--line);
+        border-radius:7px;color:var(--txt);padding:6px 8px}
+  label{display:block;color:var(--dim);font-size:11.5px;margin:0 0 4px}
+  .err{color:#fca5a5;font-size:11.5px;margin-top:6px;word-break:break-all}
+  .hint{color:var(--dim);font-size:11px;margin-top:8px;line-height:1.55}
+  .hint a{color:#93c5fd}
+  .fold{margin-top:4px}
+  .fold summary{cursor:pointer;color:var(--dim);font-size:11.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>X 书签桥 <span>真实登录态</span><span id="ver" style="margin-left:auto"></span></h1>
+  <p class="sub">在你自己的浏览器里抓全量书签，直接写进本机 App。</p>
+
+  <div class="box">
+    <div class="st"><i class="dot" id="dot"></i><span id="state">检查中…</span></div>
+    <div class="row"><span class="k">页面</span><b id="page">—</b></div>
+    <div class="row"><span class="k">已捕获请求</span><b id="cap">—</b></div>
+    <div class="row"><span class="k">进度</span><b id="prog">—</b></div>
+    <div class="err" id="err" hidden></div>
+  </div>
+
+  <button class="primary" id="go">抓取并同步到 App</button>
+  <div class="links">
+    <button id="open">打开 App</button>
+    <button id="reload">刷新页面</button>
+  </div>
+
+  <details class="fold">
+    <summary>App 地址</summary>
+    <div style="margin-top:6px">
+      <label>本机服务地址</label>
+      <input id="srv" placeholder="http://127.0.0.1:8900">
+    </div>
+  </details>
+
+  <p class="hint" id="hint">第一次用：打开 <a href="https://x.com/i/history" target="_blank">x.com/i/history</a>
+    的「书签」标签，等列表刷出来，再点上面的按钮。</p>
+</div>
+<script src="popup.js"></script>
+</body>
+</html>
