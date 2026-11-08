@@ -1,0 +1,7 @@
+* text=auto eol=lf
+*.bat text eol=crlf
+*.vbs text eol=crlf
+*.png binary
+*.xlsx binary
+# 发布快照里不带 CI（token 缺 workflow scope，见 CONTRIBUTING）
+.github/workflows/ export-ignore
