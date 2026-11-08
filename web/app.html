@@ -1,0 +1,1121 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a0c11">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="X 书签">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="icon" type="image/png" href="/icon-192.png">
+<meta name="description" content="本地 X 书签自动分类浏览器：全文搜索、批量改分类、一键导出">
+<title>X 书签</title>
+<style>
+  :root{
+    --bg:#0a0c11; --bg2:#10131a; --card:#13161f; --card2:#181c27; --line:#232838;
+    --fg:#e7ebf3; --dim:#8b93a7; --dim2:#6b7386;
+    --acc:#3b82f6; --acc2:#60a5fa;
+    --ai:#a78bfa; --tech:#38bdf8; --life:#34d399; --private:#f472b6; --misc:#94a3b8;
+    --radius:14px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);
+    font:14px/1.6 -apple-system,"Segoe UI",system-ui,"PingFang SC","Microsoft YaHei",sans-serif}
+  a{color:var(--acc2);text-decoration:none}
+  button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+  input,select{font:inherit;color:inherit}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:#2a3040;border-radius:6px}
+
+  input[type=checkbox]{accent-color:#3b82f6;width:15px;height:15px}
+
+  header{position:sticky;top:0;z-index:30;background:rgba(10,12,17,.86);
+    backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+  .hrow{max-width:1180px;margin:0 auto;padding:14px 22px 10px;display:flex;align-items:center;gap:14px}
+  .brand{font-size:17px;font-weight:700;letter-spacing:.2px;white-space:nowrap}
+  .brand span{color:var(--dim);font-weight:400;font-size:12px;margin-left:8px}
+  .acct{font-size:12px;color:var(--dim);white-space:nowrap}
+  .acct b{color:#cbd5e1;font-weight:600}
+  .grow{flex:1}
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:7px 13px;border-radius:10px;
+    border:1px solid var(--line);background:var(--card);color:#cbd5e1;font-size:13px;
+    transition:.15s;white-space:nowrap}
+  .btn:hover{background:var(--card2);border-color:#2f3648;color:#fff}
+  .btn.primary{background:linear-gradient(180deg,#3b82f6,#2563eb);border-color:#2563eb;color:#fff}
+  .btn.primary:hover{filter:brightness(1.08)}
+  .btn.ghost{background:none;border-color:transparent;color:var(--dim)}
+  .btn.ghost:hover{color:#fff;background:var(--card)}
+  .btn[disabled]{opacity:.5;cursor:default}
+  .btn.sm{padding:4px 9px;font-size:12px;border-radius:8px}
+  .btn svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.9;
+    stroke-linecap:round;stroke-linejoin:round}
+
+  .tabs{max-width:1180px;margin:0 auto;padding:0 22px 10px;display:flex;gap:8px;
+    overflow-x:auto;scrollbar-width:none}
+  .tabs::-webkit-scrollbar{display:none}
+  .tab{padding:6px 13px;border-radius:999px;border:1px solid var(--line);background:var(--card);
+    color:var(--dim);font-size:13px;white-space:nowrap;transition:.15s}
+  .tab b{font-weight:600;color:#cbd5e1;margin-left:4px}
+  .tab:hover{color:#e7ebf3;border-color:#2f3648}
+  .tab.on{background:#1b2436;border-color:#33507e;color:#dbeafe}
+  .tab.on b{color:#93c5fd}
+  .tab[data-cat="private"].on{background:#2a1a26;border-color:#7c3f5e;color:#fbcfe8}
+  .tab[data-cat="private"].on b{color:#f9a8d4}
+
+  .tools{max-width:1180px;margin:0 auto;padding:0 22px 12px;display:flex;gap:10px;
+    align-items:center;flex-wrap:wrap}
+  .search{flex:1;min-width:200px;display:flex;align-items:center;gap:8px;background:var(--card);
+    border:1px solid var(--line);border-radius:11px;padding:8px 12px}
+  .search svg{width:15px;height:15px;stroke:var(--dim);fill:none;stroke-width:2}
+  .search input{flex:1;background:none;border:0;outline:0;color:var(--fg);font-size:13.5px}
+  .sel{background:var(--card);border:1px solid var(--line);border-radius:11px;
+    padding:8px 10px;font-size:13px;outline:0}
+  .chk{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--dim);
+    cursor:pointer;user-select:none}
+  .chk input{accent-color:#3b82f6}
+  .count{font-size:12px;color:var(--dim2);padding-left:2px}
+
+  main{max-width:1180px;margin:0 auto;padding:6px 22px 80px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;align-items:start}
+  @media(max-width:520px){.grid{grid-template-columns:1fr}}
+
+  .card{position:relative;background:var(--card);border:1px solid var(--line);
+    border-radius:var(--radius);padding:13px 14px 10px;display:flex;flex-direction:column;gap:9px;
+    cursor:pointer;transition:border-color .15s,transform .15s,background .15s;overflow:hidden}
+  .card:hover{border-color:#33405c;background:var(--card2);transform:translateY(-1px)}
+  .card .top{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim);flex-wrap:wrap;
+    padding-right:30px}
+  .pill{font-size:11px;padding:1.5px 7px;border-radius:6px;font-weight:600;letter-spacing:.3px}
+  .pill.ai{background:rgba(167,139,250,.14);color:var(--ai)}
+  .pill.tech{background:rgba(56,189,248,.14);color:var(--tech)}
+  .pill.life{background:rgba(52,211,153,.14);color:var(--life)}
+  .pill.private{background:rgba(244,114,182,.16);color:var(--private)}
+  .pill.misc{background:rgba(148,163,184,.14);color:var(--misc)}
+  .who{color:#b9c2d4;font-size:12.5px;font-weight:600;white-space:nowrap;
+    min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+  .who small{font-weight:400;color:var(--dim2);margin-left:5px}
+  .when{color:var(--dim2);font-size:11.5px}
+  .when.added{color:#6f8499;border-left:1px solid #2b3444;padding-left:8px}
+  .badge{font-size:10.5px;padding:1px 6px;border-radius:5px;border:1px solid #43303a;
+    color:#f0a6a6;background:#241a1f}
+  .txt{font-size:13.5px;line-height:1.62;color:#dbe1ec;white-space:pre-wrap;word-break:break-word;
+    display:-webkit-box;-webkit-line-clamp:7;-webkit-box-orient:vertical;overflow:hidden}
+  .media{display:flex;gap:5px;flex-wrap:wrap}
+  .media img{width:92px;height:92px;object-fit:cover;border-radius:9px;background:#0e1118;
+    border:1px solid #202534;display:block}
+  .media .more{width:92px;height:92px;border-radius:9px;background:#0e1118;border:1px solid #202534;
+    display:grid;place-items:center;color:var(--dim);font-size:12px}
+  .foot{display:flex;gap:14px;align-items:center;color:var(--dim2);font-size:11.5px;
+    padding-top:2px;margin-top:auto}
+  .foot span{display:inline-flex;align-items:center;gap:4px}
+  .foot svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.8}
+  .foot .open{margin-left:auto;color:var(--dim);border:1px solid var(--line);border-radius:8px;
+    padding:2px 8px;font-size:11.5px}
+  .card:hover .foot .open{color:#dbeafe;border-color:#33507e}
+
+  .card.locked .txt,.card.locked .media,.card.locked .foot{display:none}
+  .card.locked{background:#12151d}
+  /* 卡片上的快速改分类 */
+  .cardtag{position:absolute;top:7px;right:8px;height:22px;padding:0 8px;border-radius:7px;
+    background:#182031;border:1px solid var(--line);color:var(--dim);font-size:11.5px;cursor:pointer;
+    opacity:0;transition:opacity .12s;z-index:3}
+  .card:hover .cardtag{opacity:1}
+  .cardtag:hover{color:#fff;border-color:#33507e}
+  .card.menu-on .cardtag{opacity:1;color:#fff;border-color:#33507e}
+  .cmenu{display:none;position:absolute;top:33px;right:8px;z-index:4;gap:4px;
+    background:#0f1420;border:1px solid var(--line);border-radius:10px;padding:6px;
+    box-shadow:0 10px 24px rgba(0,0,0,.45);flex-wrap:wrap;max-width:220px}
+  .card.menu-on .cmenu{display:flex}
+  .cmenu button{padding:3px 9px;font-size:12px;border-radius:7px;background:#161d2c;
+    border:1px solid var(--line);color:#b9c2d4;cursor:pointer}
+  .cmenu button:hover{color:#fff;border-color:#33507e}
+  .cmenu button.on{background:#1d4ed8;border-color:#1d4ed8;color:#fff}
+  .cmenu button.reset{color:#f0a6c8}
+  .lockhint{display:none;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 12px;padding:9px 12px;
+    border:1px solid #3a2b36;background:rgba(244,114,182,.07);border-radius:10px;
+    color:#e9c3d8;font-size:12.5px;cursor:pointer}
+  .lockhint b{color:#f2a9cb}
+  .lockhint span.arr{margin-left:auto;color:#b98aa4}
+  .locknote{display:none;color:#f0a6c8;font-size:12px;padding:2px 0 4px}
+  .card.locked .locknote{display:block}
+  .card.mblur .media img{filter:blur(11px)}
+  .card.mblur:hover .media img{filter:blur(2px)}
+
+  .empty{text-align:center;color:var(--dim);padding:80px 0;font-size:13px}
+  .onb{text-align:left;max-width:640px;margin:48px auto;padding:22px 24px;border:1px solid var(--line);
+    border-radius:14px;background:#12151d;line-height:1.75}
+  .onb h3{margin:0 0 10px;font-size:17px}
+  .onb ol{margin:10px 0 12px;padding-left:22px}
+  .onb li{margin:6px 0}
+  .onb .dim{color:var(--dim);font-size:12.5px;margin:0}
+  .more{grid-column:1/-1;text-align:center;padding:18px 0 40px}
+  .spin{width:15px;height:15px;border:2px solid #33405c;border-top-color:#93c5fd;border-radius:50%;
+    display:inline-block;animation:sp .8s linear infinite;vertical-align:-2px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+
+  /* toast */
+  #toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);
+    background:#1b2436;border:1px solid #33507e;color:#dbeafe;padding:10px 16px;border-radius:11px;
+    font-size:13px;opacity:0;transition:.25s;pointer-events:none;z-index:60;max-width:80vw}
+  #toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  /* drawer */
+  #mask{position:fixed;inset:0;background:rgba(4,6,10,.6);opacity:0;pointer-events:none;
+    transition:.2s;z-index:40}
+  #mask.on{opacity:1;pointer-events:auto}
+  #drawer{position:fixed;top:0;right:0;bottom:0;width:380px;max-width:92vw;background:#0e1118;
+    border-left:1px solid var(--line);transform:translateX(102%);transition:.24s;z-index:50;
+    overflow-y:auto;padding:18px 20px 40px}
+  #drawer.on{transform:none}
+  #drawer h3{margin:0 0 4px;font-size:15px}
+  .sec{margin-top:22px;padding-top:18px;border-top:1px solid var(--line)}
+  .sec h4{margin:0 0 10px;font-size:12px;color:var(--dim);font-weight:600;letter-spacing:.6px;
+    text-transform:uppercase}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:7px 0;font-size:13px}
+  .row small{display:block;color:var(--dim2);font-size:11.5px;margin-top:2px}
+  .row select,.row input[type=number],.row input[type=text]{max-width:150px}
+  .extlog{margin:8px 0 0;padding:10px;border-radius:8px;background:#12151c;color:#aab3c2;font:12px/1.6 ui-monospace,Consolas,monospace;max-height:200px;overflow:auto;white-space:pre-wrap;word-break:break-all}
+.kv{font-size:12px;color:var(--dim);line-height:1.9}
+  .kv code{background:#161a24;border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:11.5px}
+
+  /* lightbox */
+  #lb{position:fixed;inset:0;background:rgba(3,4,7,.94);z-index:70;display:none;
+    align-items:center;justify-content:center;flex-direction:column;gap:12px;padding:24px}
+  #lb.on{display:flex}
+  #lb img,#lb video{max-width:min(94vw,1200px);max-height:82vh;border-radius:10px;object-fit:contain}
+  #lb .cap{color:var(--dim);font-size:12px}
+
+  /* detail */
+  #dt{position:fixed;inset:0;background:rgba(4,6,10,.72);z-index:65;display:none;
+    align-items:flex-start;justify-content:center;overflow-y:auto;padding:40px 18px}
+  #dt.on{display:flex}
+  .dtbox{background:#10141d;border:1px solid var(--line);border-radius:16px;width:min(760px,100%);
+    padding:20px 22px;position:relative}
+  .dtclose{position:absolute;top:10px;right:10px;padding:2px 9px;font-size:15px;line-height:20px}
+  .trans{margin-top:12px;background:#0d1524;border:1px solid #1d2b45;border-radius:10px;
+    padding:10px 12px;font-size:13.5px;line-height:1.62;color:#c8d3e6}
+  .trans .tlbl{font-size:11.5px;color:#7f8aa3;margin-bottom:5px;letter-spacing:.3px}
+  .foot .tr{cursor:pointer;border:1px solid var(--line);border-radius:7px;padding:1px 7px;
+    color:#93c5fd;font-size:11.5px}
+  .foot .tr:hover{background:#16233a;border-color:#33507e}
+  .dtbox .txt{-webkit-line-clamp:unset;display:block;font-size:14px}
+  .dtbox .media img{width:150px;height:150px}
+  .media.mblur img{filter:blur(14px)}
+  .media.mblur:hover img{filter:blur(3px)}
+  .dtnl{flex-basis:100%;color:#f0a6c8;font-size:11.5px;padding-top:4px}
+  .dtfoot{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}
+  .dtcat{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:14px;
+    padding-top:12px;border-top:1px solid var(--line)}
+  .dtcat .lbl{font-size:12px;color:var(--dim);margin-right:4px}
+  .dtcat .lbl i{font-style:normal;color:#7f8aa3}
+
+  /* ---------- 手机 / 平板 ---------- */
+  @media(max-width:760px){
+    .hrow{padding:10px 12px 8px;gap:8px}
+    .brand{font-size:15.5px}
+    .brand span{display:none}
+    .acct{font-size:11.5px;overflow:hidden;text-overflow:ellipsis;max-width:38vw}
+    .btn{padding:6px 10px;font-size:12.5px}
+    .btn.danger{color:#ff9c9c;border-color:#5c2b2b;background:#2a1515}
+    .btn.ghost{padding:6px 8px}
+    .tabs{padding:0 12px 8px;gap:6px;flex-wrap:wrap;overflow:visible}
+    .tab{padding:5px 11px;font-size:12.5px}
+    .tools{padding:0 12px 10px;gap:8px}
+    .search{min-width:0;flex:1 1 100%;padding:8px 11px}
+    .tools .sel{flex:1 1 auto}
+    .count{width:100%;padding-left:2px}
+    main{padding:4px 12px calc(84px + env(safe-area-inset-bottom))}
+    .grid{grid-template-columns:1fr;gap:10px}
+    .card{padding:12px 13px 9px;border-radius:12px}
+    .card .txt{font-size:13.5px;-webkit-line-clamp:9}
+    .media img{width:84px;height:84px}
+    .dtbox{padding:16px 14px;border-radius:14px;width:100%}
+    .dtbox .media img{width:118px;height:118px}
+    .dtfoot .btn{flex:1 1 46%}
+    #drawer{width:100%;max-width:100%}
+    #dt{padding:16px 10px}
+    .cardtag{opacity:.85}
+    .cmenu{right:auto;left:8px}
+    /* 顶栏瘦身：图标化，登录放进设置抽屉 */
+    #bLogin{display:none}
+    #bRefresh{font-size:0;padding:6px 9px}
+    #bEye{font-size:0;padding:6px 9px}
+    #bEye::before{content:"👁";font-size:14px}
+    .hrow .grow{flex:1}
+    .tools{gap:8px}
+    .tools .sel{flex:1 1 auto;min-width:0}
+    .tools .chk{flex:0 0 auto}
+    .count{flex:1 1 100%;padding-left:0}
+  }
+/* 多选 */
+.card.sel{outline:2px solid #3b82f6;outline-offset:-2px;background:rgba(59,130,246,.10)}
+.card.cur{box-shadow:inset 0 0 0 2px rgba(255,255,255,.35)}
+body.selecting .card{cursor:pointer}
+body.selecting .card:hover{background:rgba(59,130,246,.06)}
+
+.batch{position:fixed;left:50%;bottom:18px;transform:translate(-50%,160%);z-index:60;
+  display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center;
+  padding:10px 14px;border-radius:14px;background:#15161a;border:1px solid #2a2c33;
+  box-shadow:0 12px 40px rgba(0,0,0,.55);transition:transform .22s ease;max-width:96vw}
+.batch.on{transform:translate(-50%,0)}
+.batch .n{font-size:12.5px;color:#e7e9ee;margin-right:2px;white-space:nowrap}
+.batch button{border:1px solid #2f323a;background:#1c1e23;color:#dfe2e8;border-radius:9px;
+  padding:6px 11px;font-size:12.5px;cursor:pointer}
+.batch button:hover{border-color:#4b4f5a;background:#22252b}
+.batch button.acc{background:#2563eb;border-color:#2563eb;color:#fff}
+.batch button.x{background:transparent;border-color:transparent;color:#98a0ad}
+
+/* 快捷键说明 */
+.help{position:fixed;inset:0;z-index:70;display:none;place-items:center;background:rgba(0,0,0,.62)}
+.help.on{display:grid}
+.help .box{background:#15161a;border:1px solid #2a2c33;border-radius:16px;padding:20px 22px;
+  width:min(520px,92vw);max-height:82vh;overflow:auto}
+.help h3{margin:0 0 12px;font-size:15px}
+.help table{border-collapse:collapse;width:100%;font-size:13px}
+.help td{padding:5px 0;border-bottom:1px solid #212329;color:#c9ced8}
+.help td:first-child{width:132px;color:#eef1f6}
+.help kbd{background:#23262d;border:1px solid #343842;border-bottom-width:2px;border-radius:5px;
+  padding:1px 6px;font-size:11.5px;font-family:ui-monospace,monospace}
+.help .hint{margin-top:10px;font-size:12px;color:#8b93a1}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hrow">
+    <div class="brand">X 书签<span id="gen"></span></div>
+    <div class="acct" id="acct"></div>
+    <div class="grow"></div>
+    <button class="btn" id="bRefresh" title="重新抓取书签并分类">
+      <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>刷新
+    </button>
+    <button class="btn danger" id="bStop" title="停止当前任务" style="display:none">停止</button>
+    <button class="btn" id="bEye" title="显示/隐藏私密内容">👁 显示私密</button>
+    <button class="btn" id="bLogin" title="登录或切换 X 账号">登录</button>
+    <button class="btn ghost" id="bSet" title="设置">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+    </button>
+  </div>
+  <div class="tabs" id="tabs"></div>
+  <div class="tools">
+    <label class="search">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="q" placeholder="搜索正文 / 作者 / 链接…（按 / 聚焦）" autocomplete="off">
+    </label>
+    <select class="sel" id="sort">
+      <option value="added_desc">最近收录</option>
+      <option value="time_desc">最新发布</option>
+      <option value="time_asc">最早发布</option>
+      <option value="views">浏览最多</option>
+      <option value="likes">点赞最多</option>
+      <option value="retweets">转发最多</option>
+      <option value="bookmarks">收藏最多</option>
+      <option value="replies">回复最多</option>
+    </select>
+    <label class="chk"><input type="checkbox" id="onlyMedia"> 只看带媒体</label>
+    <button class="btn ghost" id="bSel" title="多选（快捷键 S）">选择</button>
+    <span class="count" id="cnt"></span>
+  </div>
+</header>
+
+<main>
+  <div class="lockhint" id="lockhint"></div>
+  <div class="grid" id="grid"></div>
+  <div class="empty" id="empty" style="display:none"></div>
+</main>
+
+<div id="toast"></div>
+<div id="mask"></div>
+
+<aside id="drawer">
+  <h3>设置</h3>
+  <div style="color:var(--dim);font-size:12px">改完即时生效，存在本机 settings.json。</div>
+
+  <div class="sec">
+    <h4>显示</h4>
+    <div class="row"><span>默认排序<small>打开 App 时的排序方式</small></span>
+      <select class="sel" id="sSort">
+        <option value="added_desc">最近收录</option><option value="time_desc">最新发布</option><option value="time_asc">最早发布</option>
+        <option value="views">浏览最多</option><option value="likes">点赞最多</option>
+        <option value="retweets">转发最多</option><option value="bookmarks">收藏最多</option>
+        <option value="replies">回复最多</option>
+      </select></div>
+    <div class="row"><span>私密内容默认上锁<small>整张卡片模糊，需点「显示私密」</small></span>
+      <input type="checkbox" id="sBlur"></div>
+    <div class="row"><span>「待定」里的图默认模糊<small>鼠标悬停可临时看清</small></span>
+      <input type="checkbox" id="sBlurMisc"></div>
+  </div>
+
+  <div class="sec">
+    <h4>自动刷新</h4>
+    <div class="row"><span>每隔几小时自动抓一次<small>0 = 只手动刷新</small></span>
+      <input class="sel" type="number" id="sAuto" min="0" max="168" step="1" style="width:90px"></div>
+  </div>
+
+  <div class="sec">
+    <h4>账号</h4>
+    <div class="kv" id="kAcct"></div>
+    <div class="row" style="margin-top:10px"><span>换账号时旧数据<small>只影响「换了另一个账号」时</small></span>
+      <select class="sel" id="sSwitch">
+        <option value="archive">归档到 data/archive</option>
+        <option value="delete">直接删除</option>
+      </select></div>
+    <div style="margin-top:10px"><button class="btn" id="dLogin">登录 / 换账号</button></div>
+    <div style="color:var(--dim2);font-size:11.5px;margin-top:8px" id="loginMsg"></div>
+  </div>
+
+  <div class="sec">
+    <h4>数据</h4>
+    <div class="kv" id="kData"></div>
+    <div class="row" style="margin-top:10px"><span>导出时包含私密<small>默认不导，避免误发</small></span>
+      <input type="checkbox" id="sExpPriv"></div>
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+      <a class="btn" id="expCsv" href="/api/export?kind=csv">CSV</a>
+      <a class="btn" id="expXlsx" href="/api/export?kind=xlsx">Excel</a>
+      <a class="btn" id="expMd" href="/api/export?kind=md">Markdown / Obsidian</a>
+      <a class="btn" id="expRd" href="/api/export?kind=raindrop">Raindrop</a>
+    </div>
+    <div class="kv" style="margin-top:8px;color:#8b93a1">Markdown 导出是个 zip：每类一个文件夹、一条书签一个 .md、带 YAML 头，直接丢进 Obsidian / Logseq 的库里就行。</div>
+  </div>
+
+  <div class="sec">
+    <h4>扩展日志</h4>
+    <div class="kv" style="color:#8b93a1">浏览器扩展每次同步（成功或失败）都会回传一条，卡在哪一步一眼能看到。</div>
+    <div style="margin-top:10px"><button class="btn" id="dExtLog">刷新日志</button></div>
+    <pre class="extlog" id="kExtLog">还没有记录</pre>
+  </div>
+
+  <div class="sec">
+    <h4>语义分类</h4>
+    <div class="row"><span>启用本地小模型<small>给「待定」里的帖子猜分类，在电脑上跑</small></span>
+      <input type="checkbox" id="sSem"></div>
+    <div class="row"><span>置信阈值<small>越高越保守</small></span>
+      <input class="sel" type="number" id="sSemThr" min="0.4" max="0.95" step="0.05" style="width:90px"></div>
+    <div style="margin-top:10px"><button class="btn" id="dSemRun">跑一次语义分类</button></div>
+    <div class="kv" id="kSem" style="margin-top:8px">还没有跑过</div>
+  </div>
+
+  <div class="sec">
+    <h4>局域网 / 手机</h4>
+    <div class="row"><span>允许手机访问<small>开 / 关需要重启 App</small></span>
+      <input type="checkbox" id="sLan"></div>
+    <div class="kv" id="kLan" style="margin-top:8px"></div>
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+      <button class="btn sm" id="dCode">重新生成访问码</button>
+      <button class="btn sm" id="dCopy">复制地址</button>
+    </div>
+    <div class="kv" style="margin-top:8px">手机用同一个 Wi-Fi 打开上面的地址，输入访问码即可；想在外网用，装 Tailscale 后用它的 100.x 地址访问，别直接开公网端口。</div>
+  </div>
+
+  <div class="sec">
+    <h4>网络</h4>
+    <div class="row"><span>代理<small>给采集浏览器用；留空 = 直连</small></span>
+      <input class="sel" type="text" id="sProxy" placeholder="http://127.0.0.1:7897" style="width:180px"></div>
+    <div class="kv">改了代理要重启 App 才生效（下次启动采集浏览器时使用）。</div>
+  </div>
+
+  <div class="sec">
+    <h4>关于</h4>
+    <div class="kv" id="kVer"></div>
+    <div class="kv">X Bookmarks · 本地运行，不上传任何数据<br>
+      分类规则在 <code>rules.json</code>，可自己加词<br>
+      页面文件 <code>web/app.html</code>，随时可改</div>
+  </div>
+</aside>
+
+<div id="lb"><img id="lbImg" alt=""><div class="cap" id="lbCap"></div></div>
+
+<div id="dt"><div class="dtbox" id="dtBox"></div></div>
+
+<div class="batch" id="batch">
+  <span class="n">已选 <b id="bNum">0</b> 条</span>
+  <button data-cat="ai">AI</button>
+  <button data-cat="tech">技术</button>
+  <button data-cat="life">生活</button>
+  <button data-cat="private">私密</button>
+  <button data-cat="misc">待定</button>
+  <button data-cat="" class="acc">恢复自动</button>
+  <button id="bAll">全选当前</button>
+  <button id="bNone" class="x">取消选择</button>
+  <button id="bSelEnd" class="x">退出多选</button>
+</div>
+
+<div class="help" id="help">
+  <div class="box">
+    <h3>键盘快捷键</h3>
+    <table>
+      <tr><td><kbd>/</kbd></td><td>搜索</td></tr>
+      <tr><td><kbd>J</kbd> / <kbd>K</kbd></td><td>下一条 / 上一条</td></tr>
+      <tr><td><kbd>Enter</kbd> / <kbd>O</kbd></td><td>在浏览器打开原帖</td></tr>
+      <tr><td><kbd>D</kbd></td><td>看详情（图片、翻译、改分类）</td></tr>
+      <tr><td><kbd>S</kbd></td><td>进入 / 退出多选</td></tr>
+      <tr><td><kbd>X</kbd></td><td>选中 / 取消当前这条</td></tr>
+      <tr><td><kbd>1</kbd>…<kbd>5</kbd> / <kbd>0</kbd></td><td>切换 AI / 技术 / 生活 / 私密 / 待定 / 全部</td></tr>
+      <tr><td><kbd>E</kbd></td><td>打开导出（设置面板）</td></tr>
+      <tr><td><kbd>?</kbd></td><td>这个面板</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>关闭弹层 / 退出多选</td></tr>
+    </table>
+    <div class="hint">改分类也可以用卡片右上角「分类」，或选中多条后底部批量改。</div>
+  </div>
+</div>
+<script>
+"use strict";
+const CATS = {ai:"AI", tech:"技术", life:"生活", private:"私密", misc:"待定"};
+const ORDER = ["all","ai","tech","life","private","misc"];
+const SORTS = ["added_desc","time_desc","time_asc","views","likes","retweets","bookmarks","replies"];
+let ITEMS = [], META = {}, SET = {}, SEM = {}, VIEW = {selecting: false, cat:"all", q:"", sort:"time_desc", media:false};
+let revealPrivate = false, CAP = 600;
+
+const $ = (s) => document.querySelector(s);
+const el = (t, cls, html) => { const e = document.createElement(t); if (cls) e.className = cls;
+  if (html != null) e.innerHTML = html; return e; };
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmt = (n) => n >= 1e4 ? (n/1e4).toFixed(1).replace(/\.0$/,"") + "万" : String(n || 0);
+
+function toast(msg, ms=2400){
+  const t = $("#toast"); t.textContent = msg; t.classList.add("on");
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("on"), ms);
+}
+
+async function api(path, opt){
+  const r = await fetch(path, opt || {});
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return r.json();
+}
+
+async function loadState(reload){
+  const d = await api("/api/state");
+  ITEMS = d.items || []; META = d.meta || {}; META.version = d.version || ""; SET = d.settings || {}; SEM = d.semantic || {};
+  if (!VIEW._init){
+    VIEW.sort = SET.default_sort || "time_desc";
+    $("#sort").value = VIEW.sort;
+    revealPrivate = !SET.blur_private;
+    VIEW._init = true;
+  }
+  renderTabs(); render(); renderMeta();
+  if (d.refresh && d.refresh.running) pollRefresh();
+}
+
+function renderMeta(){
+  const acct = META.account ? "@" + META.account : "未识别账号";
+  $("#acct").innerHTML = `<b>${esc(acct)}</b>` + (META.total ? ` · ${META.total} 条` : "");
+  $("#gen").textContent = META.updated_at ? "· 更新于 " + META.updated_at.slice(0,16) : "";
+  $("#kAcct").innerHTML = `当前账号：<b>${esc(acct)}</b><br>采集时间：${esc(META.collected_at || META.updated_at || "—")}` +
+    (META.account ? `<br><span class="dim">换账号：点上面「登录 / 换账号」</span>` : "");
+  $("#bLogin").textContent = META.account ? "换账号" : "登录";
+  if ($("#kVer")) $("#kVer").textContent = "版本 v" + (META.version || "2.0.0");
+  $("#kData").innerHTML = `数据目录：<code>${esc(META.items_file || "data/items.json")}</code><br>共 ${META.total || 0} 条`;
+  $("#sSort").value = SET.default_sort || "time_desc";
+  $("#sBlur").checked = SET.blur_private !== false;
+  $("#sBlurMisc").checked = SET.blur_misc_media !== false;
+  $("#sAuto").value = SET.auto_refresh_hours || 0;
+  $("#sSwitch").value = SET.switch_account_policy || "archive";
+  $("#sProxy").value = SET.proxy || "";
+  if ($("#sExpPriv")) $("#sExpPriv").checked = SET.export_private === true;
+  if (typeof syncExp === "function") syncExp();
+  syncEye();
+}
+
+function syncEye(){
+  $("#bEye").textContent = revealPrivate ? "🙈 隐藏私密" : "👁 显示私密";
+}
+
+function renderTabs(){
+  const box = $("#tabs"); box.innerHTML = "";
+  const counts = {all: ITEMS.length};
+  ITEMS.forEach(i => counts[i.cat] = (counts[i.cat]||0) + 1);
+  ORDER.forEach(c => {
+    if (c !== "all" && !counts[c]) return;
+    const b = el("button", "tab" + (VIEW.cat===c ? " on":""));
+    b.dataset.cat = c;
+    b.innerHTML = (c==="all" ? "全部" : CATS[c]) + `<b>${counts[c]||0}</b>`;
+    b.onclick = () => { VIEW.cat = c; CAP = 600; renderTabs(); render(); };
+    box.appendChild(b);
+  });
+}
+
+function match(it){
+  if (VIEW.cat !== "all" && it.cat !== VIEW.cat) return false;
+  if (VIEW.media && !(it.media||[]).length) return false;
+  const q = VIEW.q.trim().toLowerCase();
+  if (!q) return true;
+  return (it.text||"").toLowerCase().includes(q) ||
+         (it.handle||"").toLowerCase().includes(q) ||
+         (it.name||"").toLowerCase().includes(q) ||
+         (it.url||"").toLowerCase().includes(q);
+}
+
+function sorted(list){
+  const s = VIEW.sort, c = SORTS.indexOf(s);
+  const cp = list.slice();
+  if (s === "time_asc") cp.sort((a,b)=> (a.created||"").localeCompare(b.created||""));
+  else if (s === "time_desc") cp.sort((a,b)=> (b.created||"").localeCompare(a.created||""));
+  else if (s === "added_desc") cp.sort((a,b)=> (b.added_at||"").localeCompare(a.added_at||"") || (b.created||"").localeCompare(a.created||""));
+  else cp.sort((a,b)=> (b[s]||0) - (a[s]||0) || (b.created||"").localeCompare(a.created||""));
+  return cp;
+}
+
+function render(){
+  const list = sorted(ITEMS.filter(match));
+  $("#cnt").textContent = `当前 ${list.length} 条`;
+  const hidden = list.filter(x => x.cat === "private" && SET.blur_private !== false && !revealPrivate).length;
+  const lh = $("#lockhint");
+  if (hidden){
+    lh.style.display = "flex";
+    lh.innerHTML = `<span>🔒 有 <b>${hidden}</b> 条私密内容被锁住了，所以卡片是空的</span>`
+      + `<span class="arr">点这里显示 →</span>`;
+  } else {
+    lh.style.display = "none";
+    lh.innerHTML = "";
+  }
+  const g = $("#grid"); g.innerHTML = "";
+  const empty = $("#empty");
+  if (!list.length){
+    empty.style.display = "block";
+    if (!ITEMS.length){
+      empty.innerHTML = `<div class="onb">
+        <h3>还没有数据</h3>
+        <p>三条路，任选一条把 X 书签抓进来：</p>
+        <ol>
+          <li><b>点右上角「登录」</b> —— App 会开一个独立浏览器窗口，你在里面登 X，登完自动抓（推荐第一次用）。</li>
+          <li><b>点「刷新」</b> —— 已经登录过，直接重新抓一遍。</li>
+          <li><b>浏览器扩展桥</b>（实验性）—— 用你自己 Chrome 的登录态抓，见 README。</li>
+        </ol>
+        <p class="dim">数据只写在本机 data/ 目录，不会上传。</p>
+      </div>`;
+    } else {
+      empty.textContent = "没有匹配的书签，换个关键词或分类";
+    }
+    return;
+  }
+  empty.style.display = "none";
+  const frag = document.createDocumentFragment();
+  list.slice(0, CAP).forEach(it => frag.appendChild(card(it)));
+  g.appendChild(frag);
+  if (VIEW.selecting) g.querySelectorAll(".card").forEach(c => c.classList.toggle("sel", SEL.has(c.dataset.id)));
+  if (list.length > CAP){
+    const more = el("div", "more");
+    const b = el("button", "btn", `加载更多（还有 ${list.length - CAP} 条）`);
+    b.onclick = () => { CAP += 400; render(); };
+    more.appendChild(b);
+    g.appendChild(more);
+  }
+}
+
+function card(it){
+  const c = el("div", "card cat-" + it.cat);
+  c.dataset.id = it.id;
+  const locked = it.cat === "private" && SET.blur_private !== false && !revealPrivate;
+  if (locked) c.classList.add("locked");
+  if (it.cat === "misc" && (it.media||[]).length && SET.blur_misc_media !== false)
+    c.classList.add("mblur");
+
+  const mk = (it.media||[]).slice(0,4).map((m,i) =>
+    `<img loading="lazy" src="${esc(m.thumb||m.url)}" data-i="${i}" alt="${esc(m.alt||"")}">`).join("");
+  const more = (it.media||[]).length > 4 ? `<div class="more">+${it.media.length-4}</div>` : "";
+
+  c.innerHTML = `
+    <div class="top">
+      <span class="pill ${it.cat}">${CATS[it.cat]||"待定"}</span>${it.manual?'<span class="pill" title="手动改过分类">手动</span>':''}
+      <span class="who">@${esc(it.handle||"?")}<small>${esc(it.name||"")}</small></span>
+      <span class="when" title="发帖时间">${esc(it.created||"")}</span>
+      ${it.added_at ? `<span class="when added" title="首次收录到本地的时间">收录 ${esc(it.added_at)}</span>` : ""}
+      ${it.sensitive ? '<span class="badge">敏感</span>' : ""}
+      ${(it.media||[]).length ? `<span class="when">${it.media.length} 媒体</span>` : ""}
+    </div>
+    <div class="locknote">🔒 私密内容已隐藏 · 点右上角「显示私密」查看（${(it.media||[]).length} 媒体）</div>
+    ${locked ? "" : `<div class="txt">${esc(it.text || "(无正文)")}</div>`}
+    ${(locked || !mk) ? "" : `<div class="media">${mk}${more}</div>`}
+    <div class="foot">
+      <span title="浏览">👁 ${fmt(it.views)}</span>
+      <span title="点赞">♥ ${fmt(it.likes)}</span>
+      <span title="转发">⇄ ${fmt(it.retweets)}</span>
+      <span title="回复">💬 ${fmt(it.replies)}</span>
+      <span title="收藏">🔖 ${fmt(it.bookmarks)}</span>
+      ${needsTrans(it) ? '<span class="tr" title="翻译这条">译</span>' : ''}
+      <span class="open">打开原帖 ↗</span>
+    </div>`;
+
+  const tag = el("button", "cardtag", "分类");
+  tag.title = "改分类";
+  tag.onclick = (e) => { e.stopPropagation(); c.classList.toggle("menu-on"); };
+  const menu = el("div", "cmenu");
+  Object.keys(CATS).forEach(k => {
+    const b = el("button", k === it.cat ? "on" : "", CATS[k]);
+    b.onclick = (e) => { e.stopPropagation(); c.classList.remove("menu-on"); setCat(it, k, false); };
+    menu.appendChild(b);
+  });
+  if (it.manual){
+    const b = el("button", "reset", "恢复自动");
+    b.onclick = (e) => { e.stopPropagation(); c.classList.remove("menu-on"); setCat(it, "", false); };
+    menu.appendChild(b);
+  }
+  c.appendChild(tag);
+  menu.addEventListener("click", (e) => e.stopPropagation());
+  c.appendChild(menu);
+
+  c.addEventListener("click", (e) => {
+    if (VIEW.selecting){
+      e.stopPropagation(); e.preventDefault();
+      if (SEL.has(it.id)) SEL.delete(it.id); else SEL.add(it.id);
+      c.classList.toggle("sel", SEL.has(it.id));
+      $("#bNum").textContent = SEL.size;
+      return;
+    }
+    const img = e.target.closest("img[data-i]");
+    if (img){ e.stopPropagation(); openLightbox(it, +img.dataset.i); return; }
+    if (e.target.closest(".tr")){ e.stopPropagation(); openDetail(it, true); return; }
+    if (e.target.closest(".cardtag") || e.target.closest(".cmenu")) { e.stopPropagation(); return; }
+    window.open(it.url, "_blank", "noopener");
+  });
+  return c;
+}
+
+function openLightbox(it, idx){
+  const m = (it.media||[])[idx]; if (!m) return;
+  const lb = $("#lb"), img = $("#lbImg");
+  img.style.display = ""; img.src = m.url || m.thumb || "";
+  $("#lbCap").textContent = `@${it.handle} · ${it.created} · 点任意处关闭`;
+  lb.classList.add("on");
+}
+
+async function setCat(it, cat, openModal){
+  try {
+    const r = await fetch("/api/item", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({id: it.id, cat})});
+    const j = await r.json();
+    if (!j.ok){ toast("改分类失败：" + (j.msg || j.error || "未知错误"), 5000); return; }
+    const target = ITEMS.find(x => x.id === it.id);
+    if (cat){
+      if (target){ target.cat = cat; target.manual = true; target.why = "手动指定"; }
+      it.cat = cat; it.manual = true; it.why = "手动指定";
+    } else {
+      toast("已恢复自动分类");
+      setTimeout(() => location.reload(), 500);
+      return;
+    }
+    renderTabs(); render();
+    toast(`已移到「${CATS[cat]}」`);
+    if (openModal) openDetail(it);
+  } catch (e){ toast("改分类失败：" + e.message, 5000); }
+}
+
+function needsTrans(it){
+  return !!(it && it.lang && !/^zh/i.test(it.lang) && (it.text || "").trim());
+}
+
+async function translateItem(it){
+  const box = $("#dtTransBox");
+  if (!box) return;
+  box.style.display = "block";
+  box.innerHTML = '<div class="tlbl">翻译中…</div>';
+  try {
+    const j = await (await fetch("/api/translate", {method:"POST",
+      headers:{"Content-Type":"application/json"}, body: JSON.stringify({id: it.id})})).json();
+    if (!j.ok){ box.innerHTML = `<div class="tlbl">${esc(j.msg || "翻译失败")}</div>`; return; }
+    const who = {llm: "AI 翻译", google: "Google 翻译", mymemory: "MyMemory 翻译"}[j.provider] || "翻译";
+    box.innerHTML = `<div class="tlbl">${who}${j.cached ? " · 缓存" : ""}${j.src ? " · 原文 " + esc(j.src) : ""}</div>
+      <div class="tbody">${esc(j.text)}</div>`;
+  } catch (e){
+    box.innerHTML = `<div class="tlbl">翻译失败：${esc(e.message)}</div>`;
+  }
+}
+
+function openDetail(it, autoTrans){
+  const box = $("#dtBox");
+  const lockIt = it.cat === "private" && !revealPrivate && SET.blur_private !== false;
+  const softIt = it.cat === "misc" && !lockIt && SET.blur_misc_media !== false && (it.media || []).length > 0;
+  box.innerHTML = `
+    <button class="btn ghost dtclose" id="dtClose" title="关闭（Esc）">✕</button>
+    <div class="top" style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+      <span class="pill ${it.cat}">${CATS[it.cat]}</span>
+      <span class="who">@${esc(it.handle)}<small>${esc(it.name||"")}</small></span>
+      <span class="when" title="发帖时间">${esc(it.created)}</span>
+      ${it.added_at ? `<span class="when added" title="首次收录时间">收录 ${esc(it.added_at)}</span>` : ""}
+    </div>
+    <div class="txt">${esc(it.text||"(无正文)")}</div>
+    <div class="media${lockIt ? " mblur" : softIt ? " mblur" : ""}" style="margin-top:12px">${(it.media||[]).map((m,i)=>
+      `<img src="${esc(m.thumb||m.url)}" data-i="${i}">`).join("")}${lockIt ?
+      '<div class="dtnl">私密内容 · 已模糊，点右上「显示私密」后重新打开可看原图</div>' : ""}</div>
+    <div class="foot" style="margin-top:14px;gap:16px">
+      <span>👁 ${fmt(it.views)}</span><span>♥ ${fmt(it.likes)}</span><span>⇄ ${fmt(it.retweets)}</span>
+      <span>💬 ${fmt(it.replies)}</span><span>🔖 ${fmt(it.bookmarks)}</span>
+    </div>
+    <div class="trans" id="dtTransBox" style="display:none"></div>
+    <div class="dtfoot">
+      <a class="btn primary" href="${esc(it.url)}" target="_blank" rel="noopener">在 X 打开原帖 ↗</a>
+      <button class="btn" id="dtTrans">翻译</button>
+      <button class="btn" id="dtCopy">复制链接</button>
+    </div>
+    <div class="dtcat">
+      <span class="lbl">分类${it.manual ? '（手动）' : ''}${it.why ? ` · <i>${esc(it.why)}</i>` : ''}</span>
+      ${Object.keys(CATS).map(k =>
+        `<button class="btn sm ${k === it.cat ? 'primary' : ''}" data-cat="${k}">${CATS[k]}</button>`).join("")}
+      ${it.manual ? `<button class="btn sm" data-cat="">恢复自动</button>` : ""}
+    </div>`;
+  box.querySelectorAll("[data-cat]").forEach(b => b.onclick = () => setCat(it, b.dataset.cat));
+  const x = box.querySelector("#dtClose");
+  if (x) x.onclick = () => { $("#dt").classList.remove("on"); };
+  box.querySelectorAll("img[data-i]").forEach(im =>
+    im.onclick = () => openLightbox(it, +im.dataset.i));
+  const cp = box.querySelector("#dtCopy");
+  if (cp) cp.onclick = async () => {
+    try { await navigator.clipboard.writeText(it.url); toast("链接已复制"); }
+    catch { toast(it.url); }
+  };
+  const tr = box.querySelector("#dtTrans");
+  if (tr) tr.onclick = () => translateItem(it);
+  $("#dt").classList.add("on");
+  if (autoTrans) setTimeout(() => translateItem(it), 30);
+}
+
+// ---------------- 交互
+$("#q").addEventListener("input", e => { VIEW.q = e.target.value; CAP = 600; render(); });
+$("#sort").addEventListener("change", e => { VIEW.sort = e.target.value; CAP = 600; render(); });
+$("#onlyMedia").addEventListener("change", e => { VIEW.media = e.target.checked; CAP = 600; render(); });
+
+$("#lockhint").onclick = () => $("#bEye").click();
+$("#bEye").onclick = () => {
+  revealPrivate = !revealPrivate;
+  syncEye(); render();
+};
+
+$("#bRefresh").onclick = async () => {
+  const b = $("#bRefresh");
+  try {
+    const r = await api("/api/refresh", {method:"POST"});
+    if (!r.ok) toast(r.msg || "已在刷新中");
+    pollRefresh();
+  } catch(e){ toast("刷新失败：" + e.message); }
+};
+
+$("#bStop").onclick = async () => {
+  try {
+    const r = await api("/api/cancel", {method:"POST"});
+    toast(r.msg || "正在停止", 3000);
+  } catch(e){ toast("停止失败：" + e.message); }
+};
+
+let pollTimer = null;
+async function pollRefresh(){
+  const b = $("#bRefresh");
+  clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    let s;
+    try { s = await api("/api/status"); } catch { return; }
+    if (s.running){
+      b.disabled = true;
+      const detail = s.pages ? ` ${s.pages} 页` : "";
+      const cnt = s.count ? ` · ${s.count} 条` : "";
+      b.innerHTML = `<span class="spin"></span>${esc((s.step||"处理中") + detail + cnt)}`;
+      $("#loginMsg").textContent = (s.step || "") + detail + cnt;
+      $("#bStop").style.display = "";
+    } else {
+      b.disabled = false;
+      b.innerHTML = "刷新";
+      $("#bStop").style.display = "none";
+      clearInterval(pollTimer);
+      if (s.step === "已停止" && !s.err){
+        toast("已停止，数据没有变化", 4000);
+        $("#loginMsg").textContent = "已停止";
+      } else if (s.err){
+        toast("刷新失败：" + s.err, 6000);
+        $("#loginMsg").textContent = "刷新失败：" + s.err;
+      } else if (s.at){
+        toast("刷新完成：" + (s.count||0) + " 条");
+        loadState();
+      }
+    }
+  }, 1500);
+}
+
+$("#bLogin").onclick = doLogin;
+$("#dLogin").onclick = doLogin;
+async function doLogin(){
+  try {
+    if (META.account && !confirm(`当前是 @${META.account}。\n\n换账号会先退出它，再打开登录窗口。继续吗？`)) return;
+    // 注意：这里**不再调用 /api/logout**。以前那样会在后端同时跑两个线程：
+    // logout 刚开出一个登录窗口，login 线程转头就把它杀了 —— 用户正在里面输密码时窗口就消失了。
+    // 现在换账号的清理动作由登录线程自己在一个窗口里完成。
+    const r = await api("/api/login", {method:"POST"});
+    $("#loginMsg").textContent = r.msg || "正在打开登录窗口…";
+    toast("正在打开登录窗口，请在那里登录 X", 4000);
+    clearInterval(window._lg);
+    window._lg = setInterval(async () => {
+      let s; try { s = await api("/api/login"); } catch { return; }
+      $("#loginMsg").textContent = s.msg || "";
+      if (s.state === "ok"){
+        clearInterval(window._lg);
+        toast("已登录 @" + s.handle + "，开始抓取…", 4000);
+        pollRefresh();
+        setTimeout(loadState, 4000);
+      } else if (s.state === "error"){
+        clearInterval(window._lg);
+        toast("登录没成：" + s.msg, 8000);
+      }
+    }, 3000);
+  } catch(e){ toast("打开登录窗口失败：" + e.message); }
+}
+
+async function saveSettings(patch){
+  Object.assign(SET, patch);
+  try { await api("/api/settings", {method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify(patch)}); }
+  catch(e){ toast("保存设置失败：" + e.message); }
+}
+
+$("#sSort").onchange = e => { SET.default_sort = e.target.value; VIEW.sort = e.target.value;
+  $("#sort").value = e.target.value; render(); saveSettings({default_sort: e.target.value}); };
+$("#sBlur").onchange = e => { SET.blur_private = e.target.checked;
+  revealPrivate = !e.target.checked; syncEye(); render(); saveSettings({blur_private: e.target.checked}); };
+$("#sBlurMisc").onchange = e => { SET.blur_misc_media = e.target.checked; render();
+  saveSettings({blur_misc_media: e.target.checked}); };
+$("#sAuto").onchange = e => saveSettings({auto_refresh_hours: Number(e.target.value) || 0});
+$("#sSwitch").onchange = e => {
+  SET.switch_account_policy = e.target.value;
+  saveSettings({switch_account_policy: e.target.value});
+  toast(e.target.value === "delete"
+    ? "换账号时会直接删除旧数据（不可恢复）"
+    : "换账号时旧数据会归档到 data/archive/");
+};
+$("#sProxy").onchange = e => saveSettings({proxy: e.target.value.trim()});
+
+// 抽屉
+function drawer(on){
+  $("#drawer").classList.toggle("on", on);
+  $("#mask").classList.toggle("on", on);
+}
+$("#bSet").onclick = () => { drawer(true); loadExtLog(); };
+$("#mask").onclick = () => { drawer(false); $("#dt").classList.remove("on"); };
+$("#lb").onclick = () => { $("#lb").classList.remove("on"); $("#lbImg").src = ""; };
+$("#dt").onclick = e => { if (e.target.id === "dt") $("#dt").classList.remove("on"); };
+
+// ---------- 多选 ----------
+const SEL = new Set();
+
+function selUI(){
+  $("#bNum").textContent = SEL.size;
+  $("#batch").classList.toggle("on", VIEW.selecting);
+  document.body.classList.toggle("selecting", VIEW.selecting);
+  $("#bSel").classList.toggle("acc", VIEW.selecting);
+  $("#bSel").textContent = VIEW.selecting ? "多选中" : "选择";
+  document.querySelectorAll("#grid .card").forEach(c =>
+    c.classList.toggle("sel", SEL.has(c.dataset.id)));
+}
+
+function setSelecting(on){
+  VIEW.selecting = on;
+  if (!on) SEL.clear();
+  selUI();
+}
+
+$("#bSel").onclick = () => { setSelecting(!VIEW.selecting); if (VIEW.selecting) toast("点卡片多选，底部改分类", 3000); };
+$("#bSelEnd").onclick = () => setSelecting(false);
+$("#bNone").onclick = () => { SEL.clear(); selUI(); };
+$("#bAll").onclick = () => {
+  sorted(ITEMS.filter(match)).slice(0, CAP).forEach(it => SEL.add(it.id));
+  selUI();
+};
+
+document.querySelectorAll("#batch button[data-cat]").forEach(b => {
+  b.onclick = async () => {
+    if (!SEL.size) return toast("先选几条");
+    const cat = b.dataset.cat;
+    const ids = [...SEL];
+    b.disabled = true;
+    try {
+      const r = await fetch("/api/item_batch", {method:"POST",
+        headers:{"Content-Type":"application/json"}, body: JSON.stringify({ids, cat})});
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.msg || j.error || "失败");
+      toast("已把 " + j.count + " 条改成「" + (cat ? CATS[cat] : "自动") + "」", 3500);
+      setSelecting(false);
+      await loadState(true);
+    } catch(e){ toast("批量改失败：" + e.message, 6000); }
+    b.disabled = false;
+  };
+});
+
+// ---------- 导出链接跟着「包含私密」走 ----------
+function syncExp(){
+  const on = $("#sExpPriv").checked;
+  [["#expCsv","csv"],["#expXlsx","xlsx"],["#expMd","md"],["#expRd","raindrop"]].forEach(pair => {
+    $(pair[0]).href = "/api/export?kind=" + pair[1] + (on ? "&private=1" : "");
+  });
+}
+
+$("#sExpPriv").onchange = () => { syncExp(); saveSettings({ export_private: $("#sExpPriv").checked }); };
+
+// ---------- 键盘 ----------
+function moveCursor(dir){
+  const cards = [].slice.call(document.querySelectorAll("#grid .card"));
+  if (!cards.length) return;
+  let i = -1;
+  cards.forEach((c, k) => { if (c.classList.contains("cur")) i = k; });
+  i = i < 0 ? (dir > 0 ? 0 : cards.length - 1) : i + dir;
+  i = Math.max(0, Math.min(cards.length - 1, i));
+  cards.forEach(c => c.classList.remove("cur"));
+  cards[i].classList.add("cur");
+  cards[i].scrollIntoView({block:"center", behavior:"smooth"});
+}
+
+function curItem(){
+  const c = document.querySelector("#grid .card.cur");
+  return c ? ITEMS.find(x => x.id === c.dataset.id) : null;
+}
+
+document.addEventListener("keydown", e => {
+  const ae = document.activeElement || {};
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName || "") || ae.isContentEditable;
+  if (e.key === "?" && !typing){ e.preventDefault(); $("#help").classList.toggle("on"); return; }
+  if (e.key === "/" && !typing){ e.preventDefault(); $("#q").focus(); return; }
+  if (e.key === "Escape"){
+    if ($("#help").classList.contains("on")) return $("#help").classList.remove("on");
+    if (VIEW.selecting) return setSelecting(false);
+    drawer(false); $("#dt").classList.remove("on"); $("#lb").classList.remove("on");
+    return;
+  }
+  if (typing) return;
+  if ($("#drawer").classList.contains("on") || $("#help").classList.contains("on")) return;
+  if (e.key === "j" || e.key === "J" || e.key === "ArrowDown"){ e.preventDefault(); return moveCursor(1); }
+  if (e.key === "k" || e.key === "K" || e.key === "ArrowUp"){ e.preventDefault(); return moveCursor(-1); }
+  const it = curItem();
+  if (e.key === "Enter" || e.key === "o" || e.key === "O"){
+    if (it){ e.preventDefault(); window.open(it.url, "_blank", "noopener"); }
+    return;
+  }
+  if (e.key === "d" || e.key === "D"){
+    if (it){ e.preventDefault(); openDetail(it); }
+    return;
+  }
+  if (e.key === "s" || e.key === "S"){ e.preventDefault(); return setSelecting(!VIEW.selecting); }
+  if (e.key === "x" || e.key === "X"){
+    if (it){
+      e.preventDefault();
+      if (SEL.has(it.id)) SEL.delete(it.id); else SEL.add(it.id);
+      selUI();
+    }
+    return;
+  }
+  if (e.key === "e" || e.key === "E"){
+    e.preventDefault(); drawer(true);
+    setTimeout(() => { const n = $("#expMd"); if (n) n.scrollIntoView({block:"center"}); }, 80);
+    return;
+  }
+  const map = {"0":"all","1":"ai","2":"tech","3":"life","4":"private","5":"misc"};
+  if (map[e.key]){
+    e.preventDefault();
+    const t = document.querySelector('.tab[data-cat="' + map[e.key] + '"]');
+    if (t) t.click();
+  }
+});
+
+// 双击卡片 = 详情（单击 = 打开原帖）
+document.addEventListener("dblclick", e => {
+  const c = e.target.closest(".card");
+  if (!c) return;
+  const hit = ITEMS.find(i => i.id === c.dataset.id);
+  if (hit) openDetail(hit);
+});
+
+
+// ---------- 局域网 / PWA ----------
+let NET = {};
+async function loadNet(){
+  try { NET = await api("/api/net"); } catch(e){ NET = {}; }
+  const on = (NET.bind || "127.0.0.1") !== "127.0.0.1";
+  if (SEM && SEM.generated) $("#kSem").textContent = "上次跑：" + SEM.generated + "（" + (SEM.model || "本地模型") + "）";
+  $("#sSem").checked = SET.semantic_enabled !== false;
+  $("#sSemThr").value = SET.semantic_threshold || 0.6;
+  $("#sLan").checked = on;
+  const code = NET.access_code || "";
+  const masked = NET.code_masked || (!code && NET.has_code);
+  $("#kLan").innerHTML = on
+    ? `局域网已开：<code>${esc(NET.lan_url || "—")}</code><br>访问码：<b>${esc(code || "(未设)")}</b>`
+      + (masked ? `<br><span class="hint">（访问码只在电脑上显示；手机上用你之前记下的那串）</span>` : "")
+      + `<br>改完绑定要重启 App。`
+    : `只在<b>本机</b>可访问（127.0.0.1）。手机要看得先打开上面的开关并重启 App。`;
+}
+
+function randCode(){
+  const a = new Uint32Array(1);
+  crypto.getRandomValues(a);
+  return String(100000 + (a[0] % 900000));
+}
+
+$("#sSem").onchange = e => saveSettings({ semantic_enabled: e.target.checked });
+$("#sSemThr").onchange = e => {
+  const v = Math.min(0.95, Math.max(0.4, parseFloat(e.target.value) || 0.6));
+  e.target.value = v; saveSettings({ semantic_threshold: v });
+};
+async function loadExtLog() {
+  const box = $("#kExtLog");
+  if (!box) return;
+  try {
+    const j = await fetch("/api/extlog").then(x => x.json());
+    const logs = (j && j.logs) || [];
+    box.textContent = logs.length
+      ? logs.slice().reverse().map(function (e) {
+          return "[" + e.at + "] " + e.stage + " · " + e.msg +
+            (e.url ? "  → " + e.url : "") + (e.ver ? "  (v" + e.ver + ")" : "");
+        }).join("\n")
+      : "还没有记录";
+  } catch (e) {
+    box.textContent = "读取失败：" + ((e && e.message) || e);
+  }
+}
+const dExtLogBtn = $("#dExtLog");
+if (dExtLogBtn) dExtLogBtn.onclick = loadExtLog;
+
+$("#dSemRun").onclick = async () => {
+  const b = $("#dSemRun");
+  b.disabled = true; b.textContent = "跑着呢…"; $("#kSem").textContent = "启动中…";
+  const r = await fetch("/api/semantic", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+    .then(x => x.json()).catch(() => ({}));
+  if (!r.ok) { toast(r.msg || "启动失败"); b.disabled = false; b.textContent = "跑一次语义分类"; return; }
+  toast("语义分类已开始");
+  const iv = setInterval(async () => {
+    const st = await fetch("/api/status").then(x => x.json()).catch(() => ({}));
+    if (st.running) { $("#kSem").textContent = st.step || "运行中…"; return; }
+    clearInterval(iv);
+    $("#kSem").textContent = st.err ? ("失败：" + st.err) : ("完成 · 共 " + (st.count || 0) + " 条");
+    b.disabled = false; b.textContent = "跑一次语义分类";
+    if (!st.err) setTimeout(() => location.reload(), 1200);
+  }, 1500);
+};
+$("#sLan").onchange = async e => {
+  const on = e.target.checked;
+  const patch = { bind: on ? "0.0.0.0" : "127.0.0.1" };
+  if (on && !(NET.access_code || SET.access_code)) patch.access_code = randCode();
+  await saveSettings(patch);
+  toast(on ? "已开启局域网访问，重启 App 后生效" : "已关闭局域网访问，重启 App 后生效", 5000);
+  await loadNet();
+};
+
+$("#dCode").onclick = async () => {
+  const c = randCode();
+  await saveSettings({ access_code: c });
+  toast("新访问码：" + c + "（已登录的设备可能要重新输一次）", 6000);
+  await loadNet();
+};
+
+$("#dCopy").onclick = async () => {
+  const t = (NET.lan_url || "") + "  访问码：" + (NET.access_code || "");
+  try { await navigator.clipboard.writeText(t); toast("已复制：" + t); }
+  catch(e){ toast(t, 6000); }
+};
+
+if ("serviceWorker" in navigator){
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
+loadNet();
+
+loadState().catch(e => {
+  $("#empty").style.display = "block";
+  $("#empty").textContent = "加载失败：" + e.message + "（App 服务没启动？）";
+});
+</script>
+</body>
+</html>
