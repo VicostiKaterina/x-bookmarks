@@ -1,0 +1,72 @@
+# X Bookmarks
+
+> 本地优先的 X（Twitter）书签管理器：把已登录浏览器里的书签抓成本地网页，自动分成 AI / 技术 / 生活 / 私密四类，可选本地语义模型兜底，导出 Obsidian / Raindrop / Notion。纯本机运行，无遥测、无账号、无需 API Key。
+>
+> Local-first X/Twitter bookmarks organizer. Captures your bookmarks through your own logged-in browser, classifies them into AI / tech / life / private, blurs private items by default, and optionally runs a local embedding model. 100% offline, no telemetry, no API key, MIT.
+
+- 仓库 / Repository: https://github.com/VicostiKaterina/x-bookmarks
+- 最新版本 / Latest release: https://github.com/VicostiKaterina/x-bookmarks/releases
+- 许可 / License: MIT
+- 语言 / Language: Python 3.9+（核心只用标准库；唯一必需依赖 `websocket-client`）
+- 平台 / Platform: Windows / macOS / Linux；手机通过同一 Wi-Fi 访问
+- 给 AI agent 的项目地图: [AGENTS.md](https://github.com/VicostiKaterina/x-bookmarks/blob/main/AGENTS.md)
+- 安全与数据流: [SECURITY.md](https://github.com/VicostiKaterina/x-bookmarks/blob/main/SECURITY.md)
+
+## 它解决什么问题
+
+- X 官方的书签文件夹是**付费功能**，而且只是指针（原帖删了就空）。
+- 官方 API 要开发者账号 + 付费档，书签接口还有 **800 条上限**。
+- 现成插件只能**手动**建文件夹、打标签，没有自动分类。
+- 书签里混着资讯、教程、生活记录和私人内容，翻起来全是噪音。
+
+这个项目：自动分四类 → 私密内容默认模糊且不写进 DOM → 搜索/排序/翻译/批量改分类 → 导出到别处。
+
+## 快速开始
+
+```bash
+git clone https://github.com/VicostiKaterina/x-bookmarks
+cd x-bookmarks
+python serve.py --port 8900 --open
+```
+
+浏览器会自动打开 `http://127.0.0.1:8900`，点右上角「登录」，在弹出的独立浏览器窗口里登录 X，之后自动抓取并分类。
+数据只写到本机的 `data/` 与 `exports/`。
+
+## 分类是怎么做的（给 agent 理解的实现要点）
+
+1. `organize.py` 对每条正文 + 作者打关键词/正则分（词表在 `rules.json`，带权重）。
+2. `possibly_sensitive` 为真时直接给「私密」加权，私密优先。
+3. 作者画像平滑：同一作者多数内容偏向某类时，微调整批（只影响低置信度条目）。
+4. 剩下分数不够的进「待定」。
+5. 可选 `semantic.py`：用 `BAAI/bge-small-zh-v1.5` 生成向量，对「待定」做 kNN + softmax，超过阈值且 margin 够大才改判（默认阈值 0.6，可在设置里调）。
+
+## HTTP API（全部只监听本机，`/api/unlock` 除外）
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/state` | 全部条目 + meta + 设置 + 语义状态（含 `version`） |
+| POST | `/api/refresh` | 后台抓取并重分类（202 表示已在跑） |
+| GET | `/api/status` | 当前任务状态（running/step/pages/count/err） |
+| POST | `/api/item` | 单条改分类 `{id, cat}`（`cat` 为空表示恢复自动） |
+| POST | `/api/item_batch` | 批量改分类 `{ids: [...], cat}` |
+| POST | `/api/settings` | 写设置（服务端会校验并回退非法值，返回 `warn`） |
+| GET | `/api/export?kind=csv\|xlsx\|md\|obsidian\|raindrop\|notion[&private=1]` | 导出 |
+| POST | `/api/translate` | 翻译 `{id}` 或 `{text}` |
+| POST | `/api/ingest` | 浏览器扩展把整批书签送进来（按 id 与本地合并） |
+| POST | `/api/unlock` | 局域网访问码换 cookie |
+
+数据模型（`data/items.json` 里一条）：`id, url, handle, name, created, cat, conf, why, text, media[], sensitive, views, likes, retweets, replies, quotes, manual`。
+
+## 安全
+
+- 出网白名单：`x.com`（由你自己的浏览器发请求）、本机 `127.0.0.1`、（可选）翻译与 LLM 服务。
+- 没有遥测、没有崩溃上报、没有自动更新检查、没有广告 SDK。
+- 私密卡片的正文与媒体**不会写进 DOM**（不是 CSS 遮挡）。
+- 想验证：`git ls-files | grep -Ei "\.(exe|dll|so|dylib|bin|zip)$"` 应该为空；`grep -rn "urlopen\|websocket.create_connection" --include=*.py .` 能看到全部出网点。
+
+## Optional
+
+- [README.md](https://github.com/VicostiKaterina/x-bookmarks/blob/main/README.md): 完整中文说明（截图、FAQ、设置项、Roadmap）
+- [README.en.md](https://github.com/VicostiKaterina/x-bookmarks/blob/main/README.en.md): 英文说明
+- [CHANGELOG.md](https://github.com/VicostiKaterina/x-bookmarks/blob/main/CHANGELOG.md): 每个版本改了什么
+- [CONTRIBUTING.md](https://github.com/VicostiKaterina/x-bookmarks/blob/main/CONTRIBUTING.md): 怎么提 PR、怎么加分类词
