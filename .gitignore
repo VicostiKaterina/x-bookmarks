@@ -1,0 +1,28 @@
+# 鏈満鏁版嵁涓庣櫥褰曟�侊紝涓嶈鎻愪氦
+settings.json
+data/
+exports/
+profile/
+xbm-profile2/
+.profile/
+*.log
+__pycache__/
+*.pyc
+_lab/
+.venv/
+node_modules/
+docs/*.png.local
+
+# 绯荤粺
+.DS_Store
+Thumbs.db
+
+python.txt
+
+*.err
+models/
+data/emb_cache.npz
+
+# 备份文件
+*.bak
+*.tmp

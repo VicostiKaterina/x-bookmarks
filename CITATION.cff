@@ -1,0 +1,33 @@
+cff-version: 1.2.0
+message: "如果你在论文、报告或 agent 工作流里用到这个项目，可以按下面格式引用。"
+title: "X Bookmarks"
+abstract: >-
+  本地优先的 X（Twitter）书签管理器：复用本机浏览器已登录的会话抓取全部书签，
+  自动分为 AI / 技术 / 生活 / 私密四类，私密内容默认模糊且不写入 DOM，
+  可选本地 embedding 模型（BAAI/bge-small-zh-v1.5）兜底，
+  支持全文搜索、批量改分类、导出 Obsidian / Raindrop / Notion 与手机同网访问。
+  纯本机运行，无遥测、无账号、无需 API Key。
+type: software
+authors:
+  - family-names: VicostiKaterina
+    name: VicostiKaterina
+license: MIT
+repository-code: "https://github.com/VicostiKaterina/x-bookmarks"
+url: "https://github.com/VicostiKaterina/x-bookmarks"
+version: 2.3.3
+date-released: "2026-11-08"
+keywords:
+  - x-bookmarks
+  - twitter-bookmarks
+  - bookmarks-manager
+  - local-first
+  - privacy
+  - self-hosted
+  - offline
+  - ai-classification
+  - text-embeddings
+  - python
+  - obsidian
+  - raindrop
+  - notion
+  - llm-agent
