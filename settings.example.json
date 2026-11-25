@@ -1,0 +1,21 @@
+{
+  "port": 8900,
+  "bind": "127.0.0.1",
+  "access_code": "",
+  "data_dir": "data",
+  "export_dir": "exports",
+  "profile_dir": "profile",
+  "proxy": "",
+  "debug_port": 9222,
+  "default_sort": "time_desc",
+  "auto_refresh_hours": 0,
+  "blur_private": true,
+  "blur_misc_media": true,
+  "translate_provider": "auto",
+  "translate_target": "zh-CN",
+  "llm_base": "https://api.deepseek.com/v1",
+  "llm_key": "",
+  "llm_model": "deepseek-chat",
+  "semantic_enabled": true,
+  "semantic_threshold": 0.6
+}
