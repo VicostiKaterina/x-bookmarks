@@ -1,0 +1,9 @@
+# 抓取只需要这一个（websocket-client）；分类/导出用标准库
+websocket-client>=1.6
+
+# 可选：导出 xlsx 时需要
+openpyxl>=3.1
+
+# 可选：语义分类（本地小模型，约 40MB）
+# fastembed>=0.4
+# onnxruntime>=1.17
